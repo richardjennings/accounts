@@ -118,6 +118,8 @@
 {{define "datefield"}}<label>Date<input type="date" name="date" value="{{.Today}}"></label>{{end}}
 
 
+{{define "colopts"}}<option value=""{{if eq .Sel ""}} selected{{end}}>—</option>{{$sel := .Sel}}{{range .Cols}}<option value="{{.}}"{{if eq . $sel}} selected{{end}}>{{.}}</option>{{end}}{{end}}
+
 {{define "bankselect"}}<label>Bank account<select name="bank">{{range .Banks}}<option value="{{.Code}}"{{if eq .Code $.MainBank}} selected{{end}}>{{.Name}}{{if eq .Code $.MainBank}} (main){{end}}</option>{{end}}</select></label>{{end}}
 
 
@@ -315,7 +317,7 @@
   <p class="muted">One row per cost, posted as a direct expense paid from the main account.</p>
   <p><code>Date, Supplier, Description, Amount</code></p></div>
 </div>
-<p class="muted">These match the Crunch importer templates; columns are matched by header name, so extra or re-ordered columns are fine, and UK day-first dates are understood.</p>{{end}}
+<p class="muted">These match the Crunch importer templates; columns are matched by header name, so extra or re-ordered columns are fine, and UK day-first dates are understood. For a bank statement whose columns need choosing by hand, use <a href="/banking/statements">Banking → Import statement</a>.</p>{{end}}
 
 
 {{define "page:sales"}}<h1>Sales · Invoices</h1>
@@ -501,6 +503,51 @@
   {{template "bankselect" .}}{{template "datefield" .}}<button>Add charge</button></form></div>
 </div>{{template "activity" .}}{{end}}
 
+
+{{define "page:banking.statements"}}<h1>Banking · Import statement</h1>
+{{if not .StmtUpload}}
+<div class="card"><h3>Upload a bank statement</h3>
+<form method="post" action="/banking/statements/upload" enctype="multipart/form-data">
+ <div class="row">
+  <div style="max-width:280px">{{template "bankselect" .}}</div>
+  <label style="max-width:320px">Statement file (.csv or .xls)<input type="file" name="file" accept=".csv,.xls,text/csv"></label>
+ </div>
+ <label>…or paste CSV<textarea name="csv" rows="6" placeholder="Date,Description,Paid In,Paid Out,Balance&#10;15/05/2026,Client payment,1200.00,,3200.00"></textarea></label>
+ <button>Upload and map columns</button></form>
+<p class="muted">Every bank names its columns differently, so the next step shows the file's own columns and lets you say which is the date, the description and the amount — one signed column or a paid-in / paid-out pair — before anything is imported. The mapping is remembered per account.</p></div>
+{{else}}{{with .StmtUpload}}
+<div class="card"><h3>Map the columns — {{.FileName}} → {{.BankName}}</h3>
+<form method="post" action="/banking/statements/map">
+ <div class="row">
+  <label>Date<select name="col_date">{{template "colopts" dict2 .Headers .Spec.Date}}</select></label>
+  <label>Description<select name="col_desc">{{template "colopts" dict2 .Headers .Spec.Description}}</select></label>
+  <label>Amount (signed)<select name="col_amount">{{template "colopts" dict2 .Headers .Spec.Amount}}</select></label>
+ </div>
+ <div class="row">
+  <label>Paid in<select name="col_in">{{template "colopts" dict2 .Headers .Spec.In}}</select></label>
+  <label>Paid out<select name="col_out">{{template "colopts" dict2 .Headers .Spec.Out}}</select></label>
+  <label>Balance<select name="col_balance">{{template "colopts" dict2 .Headers .Spec.Balance}}</select></label>
+ </div>
+ <div class="row">
+  <label>Date order<select name="date_order">
+   <option value="dmy"{{if eq .Spec.DateOrder "dmy"}} selected{{end}}>Day first (UK) — 31/01/2026</option>
+   <option value="ymd"{{if eq .Spec.DateOrder "ymd"}} selected{{end}}>Year first — 2026-01-31</option>
+   <option value="mdy"{{if eq .Spec.DateOrder "mdy"}} selected{{end}}>Month first (US) — 01/31/2026</option>
+  </select></label>
+  <label class="chk" style="align-self:end"><input type="checkbox" name="negate"{{if .Spec.Negate}} checked{{end}}> Flip the sign (bank shows money out as positive)</label>
+ </div>
+ <button>Update preview</button></form>
+{{if .SpecErr}}<p class="flash">⚠ {{.SpecErr}}</p>{{else}}
+<h4>Preview — {{.Lines}} line(s), {{.Skipped}} unreadable, movements sum to {{money .Total}}</h4>
+<table class="stmt"><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th class="num">Balance</th></tr>
+{{range .Preview}}<tr><td class="date">{{.Date}}</td><td>{{.Desc}}</td><td class="num">{{money .Amount}}</td><td class="num">{{if .HasBalance}}{{money .Balance}}{{end}}</td></tr>{{end}}
+</table>
+{{if .Issues}}<ul>{{range .Issues}}<li class="muted">{{.}}</li>{{end}}</ul>{{end}}
+<div class="row">
+ <form method="post" action="/banking/statements/confirm"><button>Import {{.Lines}} line(s)</button></form>
+ <form method="post" action="/banking/statements/cancel"><button class="link">Cancel</button></form>
+</div>{{end}}
+</div>{{end}}{{end}}{{end}}
 
 {{define "page:banking.reconcile"}}<h1>Banking · Reconcile</h1>
 {{if .Recs}}{{range .Recs}}<div class="card">

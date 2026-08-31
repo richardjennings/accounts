@@ -8,6 +8,7 @@ import (
 
 	"github.com/richardjennings/accounts/chart"
 	"github.com/richardjennings/accounts/company"
+	"github.com/richardjennings/accounts/importer"
 	"github.com/richardjennings/accounts/ledger"
 	"github.com/richardjennings/accounts/money"
 	"github.com/richardjennings/accounts/purchaseledger"
@@ -48,21 +49,22 @@ type billLedgerDTO struct {
 }
 
 type snapshot struct {
-	Co            company.Company
-	Today         ledger.Date
-	ClosedThrough ledger.Date
-	Seq           int
-	MainBank      string
-	Banks         []bankAcct
-	Reg           register.Register
-	Costs         []*costRecord
-	StmtLines     []*stmtLine
-	Employees     []*employee
-	Assets        []*assetHolding
-	InvoiceDocs   []*invoiceDoc
-	Entries       []entryDTO
-	SalesInvoices []invoiceLedgerDTO
-	PurchaseBills []billLedgerDTO
+	Co             company.Company
+	Today          ledger.Date
+	ClosedThrough  ledger.Date
+	Seq            int
+	MainBank       string
+	Banks          []bankAcct
+	Reg            register.Register
+	Costs          []*costRecord
+	StmtLines      []*stmtLine
+	Employees      []*employee
+	Assets         []*assetHolding
+	InvoiceDocs    []*invoiceDoc
+	Entries        []entryDTO
+	SalesInvoices  []invoiceLedgerDTO
+	PurchaseBills  []billLedgerDTO
+	StatementSpecs map[string]importer.StatementSpec
 }
 
 // snapshot builds the persisted form of the current state. The caller holds a.mu.
@@ -70,6 +72,7 @@ func (a *app) buildSnapshot() snapshot {
 	s := snapshot{
 		Co: a.co, Today: a.today, ClosedThrough: a.closedThrough, Seq: a.seq, MainBank: a.mainBank,
 		Banks: a.banks, Reg: a.reg, Costs: a.costs, StmtLines: a.stmtLines, Employees: a.employees, Assets: a.assets,
+		StatementSpecs: a.statementSpecs,
 	}
 	for _, ref := range a.invoiceOrder {
 		if d, ok := a.invoiceDocs[ref]; ok {
@@ -172,6 +175,7 @@ func (a *app) restore(s *snapshot) error {
 
 	a.co, a.today, a.closedThrough, a.seq, a.mainBank = s.Co, s.Today, s.ClosedThrough, s.Seq, s.MainBank
 	a.banks, a.reg, a.costs, a.employees, a.assets = s.Banks, s.Reg, s.Costs, s.Employees, s.Assets
+	a.statementSpecs = s.StatementSpecs
 	a.stmtLines = s.StmtLines
 	a.book = book
 
