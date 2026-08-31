@@ -297,6 +297,16 @@
  <label>…or choose a file<input type="file" name="file" accept=".csv,text/csv"></label>
  <button>Import</button></form>
 <p class="muted">Data enters only by import — nothing is fetched from a bank or provider. Rows dated in a <b>closed period</b> are skipped.</p></div>
+<div class="card"><h3>Import a Crunch export</h3>
+<form method="post" action="/company/import/crunch" enctype="multipart/form-data">
+ <label>Export archive (the .zip from Crunch → Export data)<input type="file" name="file" accept=".zip,application/zip"></label>
+ <button>Import Crunch export</button></form>
+<p class="muted">Reads every workbook in the archive — sales invoices and credit notes, client payments, expenses and their line items, money transfers, bank deposits, interest, salaries, dividends, director withdrawals, tax payments and rebates — and posts them. Bank accounts named in the export are created. Set the company details, year end and main bank account first: payments whose account the export does not name go to the main account.</p></div>
+{{with .LastImport}}<div class="card"><h3>Last import — {{.Profile}}</h3>
+<table>{{range .Counts}}<tr><td>{{.Kind}}</td><td class="num">{{.N}}</td></tr>{{end}}</table>
+{{if .Notes}}<h4>Notes</h4><ul>{{range .Notes}}<li>{{.}}</li>{{end}}</ul>{{end}}
+{{if .Issues}}<h4>Rows needing attention ({{len .Issues}})</h4><ul>{{range .Issues}}<li>{{.}}</li>{{end}}</ul>{{end}}
+</div>{{end}}
 <div class="row">
  <div class="card"><h3>Sales invoices — columns</h3>
   <p class="muted">One row per invoice. The total is VAT-inclusive when “Includes VAT?” is Yes (VAT extracted at 20%). A payment date marks it paid.</p>

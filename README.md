@@ -31,6 +31,7 @@ accounting standard (FRS 105 vs FRS 102 §1A) lives in the upper layers — the
 | Package | Status | Purpose |
 |---------|--------|---------|
 | [`decimal`](https://github.com/richardjennings/decimal) | external | Arbitrary-precision decimal engine (GDA-conformant). The reason `0.1 + 0.2` is exact. |
+| [`xls`](https://github.com/richardjennings/xls) | external | Reads the binary `.xls` workbooks accounting packages export, with dates and exact amounts. |
 | `money` | built | Currency-aware, fixed-scale, exact monetary type. Exact Add/Sub/allocation; single-rounded Mul/Div. |
 | `ledger` | built | Double-entry engine: accounts, balanced-by-construction journals, balances, trial balance. |
 | `chart` | built | Starter charts of accounts (data). A conventional UK micro-Ltd chart is provided. |
@@ -44,7 +45,8 @@ accounting standard (FRS 105 vs FRS 102 §1A) lives in the upper layers — the
 | `fixedassets` | built | Fixed-asset register + depreciation (straight-line / reducing-balance); posts purchase and charge. |
 | `mileage` | built | AMAP business-mileage claims (verified 2026/27 rates) and the reimbursement posting. |
 | `filing` | planned | Generated artifacts per recipient — filing profiles and iXBRL XML. Generates; never submits. |
-| `import` | planned | CSV ingest + column mapping into journals — the only data-entry point. |
+| `csvimport` | built | CSV rows of invoices, expenses and bank statements, matched by header name. |
+| `importer` | built | A whole history from another package's export: typed tables (`.xls` via [`xls`](https://github.com/richardjennings/xls), or CSV) → a profile per package → records the engine posts. `importer/crunch` is the Crunch profile. |
 
 ## The product themes
 
@@ -79,9 +81,11 @@ artifacts (including iXBRL); it never submits them.
 - **In:** exact GBP money, UK round-half-up, the double-entry ledger, a starter chart.
 - **Boundary (settled):** files in, documents out — CSV import and generated artifacts
   (accounts, iXBRL) only; no live HMRC / Companies House / bank-feed integrations.
-- **Deferred:** VAT; the FRS 105 vs FRS 102 §1A choice; multi-currency/FX; persistence;
-  reports; iXBRL generation; CSV import; guided scenarios and the plain-language
-  explanation layer.
+- **Import:** paste or upload CSV, or upload a whole Crunch export archive (Company →
+  Import). A foreign-currency invoice is posted at its value in the company currency;
+  the currency figure is kept on the invoice line.
+- **Deferred:** the FRS 105 vs FRS 102 §1A choice; multi-currency/FX beyond that;
+  guided scenarios.
 
 ## Design principles
 

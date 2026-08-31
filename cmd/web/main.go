@@ -209,7 +209,8 @@ type app struct {
 	lastPayroll   *payroll.Result
 	lastDividend  *dividendRun
 	closedThrough ledger.Date // periods on/before this date are closed (locked)
-	dataPath      string      // save file; empty = in-memory only
+	lastImport    *importReport
+	dataPath      string // save file; empty = in-memory only
 	tmpl          *template.Template
 }
 
@@ -768,11 +769,12 @@ func (a *app) activity(section string) []journalView {
 }
 
 type pageData struct {
-	Nav     []navSection
-	Active  string
-	Section string
-	Flash   string
-	Content template.HTML
+	LastImport *importReport
+	Nav        []navSection
+	Active     string
+	Section    string
+	Flash      string
+	Content    template.HTML
 
 	Co            company.Company
 	FY            company.FinancialYear
@@ -867,6 +869,7 @@ func (a *app) render(w http.ResponseWriter, page string) {
 	for _, p := range payroll.StudentLoanPlans {
 		d.StudentLoanPlanNames = append(d.StudentLoanPlanNames, p.Name)
 	}
+	d.LastImport = a.lastImport
 	d.Banks, d.MainBank = a.banks, a.main()
 	for _, b := range a.banks {
 		d.BankRows = append(d.BankRows, bankRow{Code: b.Code, Name: b.Name, Balance: a.bal(b.Code), Main: b.Code == a.main()})
@@ -974,6 +977,18 @@ func main() {
 	if a.dataPath != "" {
 		log.Printf("saving to %s", a.dataPath)
 	}
+	mux := a.routes()
+
+	ln, err := net.Listen("tcp", *addr)
+	if err != nil {
+		log.Fatalf("cannot listen on %s: %v", *addr, err)
+	}
+	log.Printf("Virtual Accounts UI on http://%s", ln.Addr())
+	log.Fatal(http.Serve(ln, a.persistMiddleware(mux)))
+}
+
+// routes builds the HTTP handlers over the app's state.
+func (a *app) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -1082,6 +1097,7 @@ func main() {
 		}
 		http.Redirect(w, r, "/company/import", http.StatusSeeOther)
 	})
+	mux.HandleFunc("/company/import/crunch", func(w http.ResponseWriter, r *http.Request) { a.importArchive(w, r, crunchProfile()) })
 	mux.HandleFunc("/company/officers/add", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		defer a.mu.Unlock()
@@ -1671,13 +1687,7 @@ func main() {
 		a.mu.Unlock()
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	})
-
-	ln, err := net.Listen("tcp", *addr)
-	if err != nil {
-		log.Fatalf("cannot listen on %s: %v", *addr, err)
-	}
-	log.Printf("Virtual Accounts UI on http://%s", ln.Addr())
-	log.Fatal(http.Serve(ln, a.persistMiddleware(mux)))
+	return mux
 }
 
 // persistMiddleware saves the company after any state-changing (POST) request.

@@ -1,0 +1,2 @@
+Date,Supplier - Ref,Recharge to,Net amount,VAT amount,Gross amount,Payment(s) amount,Combined,Payment method(s),Credit note(s) amount,Payment status,Attachments,Line item(s) description
+2026-01-05,CloudCo,Widgets Inc,150.00,30.00,180.00,180.00,false,Transfer out from business bank account,0,Paid,0,Hosting
