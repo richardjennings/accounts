@@ -88,6 +88,11 @@ func TestImportOverHTTP(t *testing.T) {
 	if strings.Count(sales, "/sales/invoices/view?ref=INV-") != 3 || !strings.Contains(sales, "Widgets Inc") {
 		t.Errorf("sales page does not list the three invoices")
 	}
+	// The source's own numbers are the references, in date order.
+	i1, i2, i3 := strings.Index(sales, `ref=INV-1"`), strings.Index(sales, `ref=INV-2"`), strings.Index(sales, `ref=INV-3"`)
+	if i1 < 0 || i2 < i1 || i3 < i2 {
+		t.Errorf("invoice references or order wrong: %d %d %d", i1, i2, i3)
+	}
 
 	// Persisted: a fresh app restores it all.
 	b, err := newApp(path)

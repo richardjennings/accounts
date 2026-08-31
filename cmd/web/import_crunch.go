@@ -345,7 +345,15 @@ func (ap *batchApplier) invoices(invs []importer.Invoice) {
 			lines = append(lines, sales.InvoiceLine{Description: l.Description, Quantity: decimal.MustParse("1"), UnitPrice: l.Net, VATRate: l.VATRate, Recharge: l.Recharge})
 		}
 		gross, _ := net.Add(vat)
-		ref := a.ref("INV")
+		// Keep the source's invoice number as the reference; fall back to the
+		// app's own when the source has none or it is already in use.
+		ref := inv.Ref
+		if _, taken := a.invoiceDocs[ref]; ref == "" || taken {
+			ref = a.ref("INV")
+			if inv.Ref != "" {
+				ap.issue("invoice %s: number already in use; posted as %s", inv.Ref, ref)
+			}
+		}
 		op := sales.Invoice{Date: inv.Date, Ref: ref, Customer: inv.Customer, Amount: net, VAT: vat}
 		if !ap.post("sales", "Sales invoices", op) {
 			continue
@@ -386,8 +394,11 @@ func vatShare(gross, docNet, docVAT money.Money) (net, vat money.Money) {
 func (ap *batchApplier) creditNotes(cns []importer.CreditNote) {
 	a := ap.a
 	for _, cn := range cns {
-		ref := a.ref("CN")
-		narr := "Credit note " + ref + " (" + cn.Ref + ")"
+		ref := cn.Ref
+		if ref == "" {
+			ref = a.ref("CN")
+		}
+		narr := "Credit note " + ref
 		appRef, known := ap.refs[cn.Invoice]
 		net, vat := cn.Gross, money.Zero(ap.cur)
 		if doc := a.invoiceDocs[appRef]; known && doc != nil {

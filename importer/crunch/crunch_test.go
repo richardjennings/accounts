@@ -83,7 +83,7 @@ func TestReadExport(t *testing.T) {
 		t.Fatalf("%d invoices", len(b.Invoices))
 	}
 	inv := b.Invoices[0]
-	if inv.Ref != "INV-1" || inv.Lines[0].Net.String() != "GBP 750.00" || !strings.Contains(inv.Lines[0].Description, "$ 1000") || inv.Memo == "" {
+	if inv.Ref != "INV-1" || inv.Lines[0].Net.String() != "GBP 750.00" || inv.Lines[0].Description != "Invoiced in $: $ 1000.00 gross" || inv.Memo == "" {
 		t.Errorf("INV-1: %+v", inv)
 	}
 	if l := b.Invoices[3].Lines[0]; l.VAT.String() != "GBP 20.00" || l.VATRate.String() != "0.20" {

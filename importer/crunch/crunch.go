@@ -108,6 +108,8 @@ func (Profile) Read(src importer.Source, cur money.Currency) (*importer.Batch, [
 	r.withdrawals()
 	r.tax()
 	r.unsupported()
+	sort.SliceStable(r.b.Invoices, func(i, j int) bool { return r.b.Invoices[i].Date.Before(r.b.Invoices[j].Date) })
+	sort.SliceStable(r.b.Bills, func(i, j int) bool { return r.b.Bills[i].Date.Before(r.b.Bills[j].Date) })
 	for name := range r.banks {
 		r.b.Banks = append(r.b.Banks, name)
 	}
@@ -186,7 +188,7 @@ func (r *reader) invoicesAndCredits() {
 		}
 		ref, customer := row.Text("Invoice # - Ref"), row.Text("Client")
 		inv := importer.Invoice{Date: date, Ref: ref, Customer: customer}
-		line := importer.InvoiceLine{Description: "Invoice " + ref, Net: net, VAT: vat, VATRate: rateOf(net, vat)}
+		line := importer.InvoiceLine{Description: "Invoice", Net: net, VAT: vat, VATRate: rateOf(net, vat)}
 		if vat.IsPositive() {
 			r.b.VATCharged = true
 		}
@@ -195,7 +197,7 @@ func (r *reader) invoicesAndCredits() {
 			if cg, err := row.Money(r.cur, "Currency gross amount"); err == nil && cg.IsPositive() {
 				oi.foreign, oi.ccyGross, oi.openCcy = true, cg.Amount().Rat(), cg.Amount().Rat()
 				inv.Memo = fmt.Sprintf("issued in %s: %s gross", ccy, cg.Amount().String())
-				line.Description += " (" + ccy + " " + cg.Amount().String() + ")"
+				line.Description = "Invoiced in " + ccy + ": " + ccy + " " + cg.Amount().String() + " gross"
 			}
 		}
 		inv.Lines = []importer.InvoiceLine{line}
