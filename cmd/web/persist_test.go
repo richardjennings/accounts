@@ -6,14 +6,17 @@ import (
 	"time"
 
 	"github.com/richardjennings/accounts/chart"
+	"github.com/richardjennings/accounts/fixedassets"
 	"github.com/richardjennings/accounts/ledger"
 	"github.com/richardjennings/accounts/money"
 	"github.com/richardjennings/accounts/themes/sales"
+	"github.com/richardjennings/decimal"
 )
 
 // TestPersistRoundTrip mutates an app, serialises it to JSON and back, restores it
 // into a fresh app, and checks the rebuilt state matches — balances (rebuilt by
-// replaying journals), the sales ledger, registers and company details.
+// replaying journals), the sales ledger, registers, company details, and the bare
+// decimals (quantity, VAT rate, depreciation rate) inside invoice lines and assets.
 func TestPersistRoundTrip(t *testing.T) {
 	a, err := newApp("") // in-memory; seeds £100 share capital
 	if err != nil {
@@ -40,6 +43,15 @@ func TestPersistRoundTrip(t *testing.T) {
 	if err := a.sl.Allocate("INV-100", money.MustParse(money.GBP, "500.00")); err != nil {
 		t.Fatal(err)
 	}
+
+	a.invoiceOrder = append(a.invoiceOrder, "INV-100")
+	a.invoiceDocs["INV-100"] = &invoiceDoc{Ref: "INV-100", Customer: "Acme", Date: inv.Date,
+		Lines: []sales.InvoiceLine{{Description: "Consulting", Quantity: decimal.MustParse("2"),
+			UnitPrice: money.MustParse(money.GBP, "500.00"), VATRate: decimal.MustParse("0.20")}},
+		Net: inv.Amount, VAT: inv.VAT, Gross: money.MustParse(money.GBP, "1200.00")}
+	a.assets = append(a.assets, &assetHolding{Asset: fixedassets.Asset{Ref: "FA-1", Name: "Laptop",
+		Cost: money.MustParse(money.GBP, "1200.00"), Acquired: inv.Date, Method: fixedassets.ReducingBalance,
+		Rate: decimal.MustParse("0.25")}, Accumulated: money.MustParse(money.GBP, "0.00")})
 
 	// Snapshot → JSON → snapshot (exercises the money/decimal marshalers).
 	blob, err := json.Marshal(a.buildSnapshot())
@@ -77,6 +89,16 @@ func TestPersistRoundTrip(t *testing.T) {
 	}
 	if got := inv2.Outstanding().String(); got != "GBP 700.00" {
 		t.Errorf("outstanding = %s, want GBP 700.00 (1200 − 500 paid)", got)
+	}
+	d, ok := b.invoiceDocs["INV-100"]
+	if !ok || len(d.Lines) != 1 {
+		t.Fatalf("invoice document not restored: %+v", d)
+	}
+	if q, r := d.Lines[0].Quantity.String(), d.Lines[0].VATRate.String(); q != "2" || r != "0.20" {
+		t.Errorf("invoice line decimals = quantity %s, VAT rate %s; want 2, 0.20", q, r)
+	}
+	if len(b.assets) != 1 || b.assets[0].Asset.Rate.String() != "0.25" {
+		t.Errorf("asset depreciation rate not restored: %+v", b.assets)
 	}
 	tb, err := b.book.TrialBalance()
 	if err != nil {

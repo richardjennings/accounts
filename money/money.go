@@ -138,7 +138,7 @@ func (m Money) IsPositive() bool { return m.Sign() > 0 }
 
 // String renders the amount as "GBP 12.34" (culture-neutral, at fixed scale).
 func (m Money) String() string {
-	return m.cur.Code + " " + formatFixed(m.minor(), m.cur.Scale)
+	return m.cur.Code + " " + m.amount.StringPlain()
 }
 
 // --- arithmetic ---

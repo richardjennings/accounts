@@ -4,7 +4,6 @@ import (
 	"math/big"
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/richardjennings/decimal"
 )
@@ -69,29 +68,6 @@ func roundAway(q, rem, den *big.Int, neg bool, mode decimal.RoundingMode) bool {
 		return d == 0 || d == 5
 	}
 	return false
-}
-
-// formatFixed renders a signed minor-unit count at a fixed number of decimal
-// places, always plain (never scientific): 5 at scale 2 -> "0.05".
-func formatFixed(minor *big.Int, scale int32) string {
-	neg := minor.Sign() < 0
-	digits := new(big.Int).Abs(minor).Text(10)
-	var b strings.Builder
-	if neg {
-		b.WriteByte('-')
-	}
-	if scale <= 0 {
-		b.WriteString(digits)
-		return b.String()
-	}
-	s := int(scale)
-	if len(digits) <= s {
-		digits = strings.Repeat("0", s+1-len(digits)) + digits
-	}
-	b.WriteString(digits[:len(digits)-s])
-	b.WriteByte('.')
-	b.WriteString(digits[len(digits)-s:])
-	return b.String()
 }
 
 // largestRemainderOrder returns part indices ordered by descending remainder

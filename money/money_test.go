@@ -153,6 +153,26 @@ func TestJSONRoundTrip(t *testing.T) {
 	}
 }
 
+func TestJSONZeroValue(t *testing.T) {
+	b, err := json.Marshal(Money{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "null" {
+		t.Fatalf("zero Money json = %s, want null", b)
+	}
+	back := MustParse(GBP, "1.00")
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.Currency().Code != "" || !back.IsZero() {
+		t.Fatalf("null did not decode as the zero Money: %+v", back)
+	}
+	if err := json.Unmarshal([]byte(`{"currency":"GBP"}`), &back); err == nil {
+		t.Fatal("missing amount accepted")
+	}
+}
+
 func TestMinorUnits(t *testing.T) {
 	m := MustParse(GBP, "12.34")
 	if v, ok := m.MinorUnits(); !ok || v != 1234 {
