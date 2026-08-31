@@ -50,3 +50,39 @@ func TestBankingOps(t *testing.T) {
 	assertBalance(t, book, chart.OfficeAdmin, "GBP 2.00")
 	assertBalance(t, book, chart.Bank, "GBP -97.00") // -100 + 5 - 2
 }
+
+func TestConversion(t *testing.T) {
+	book, err := chart.NewUKMicroLtdBook(money.GBP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := book.AddAccount(ledger.Account{Code: "1290", Name: "USD account", Type: ledger.Asset}); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		proceeds, carried string
+		wantFX            string // income balance: gains positive
+		postings          int
+	}{
+		{"9366.17", "9500.00", "-133.83", 3}, // realised less than carried: a loss
+		{"9700.00", "9500.00", "66.17", 3},   // a gain of 200, net of the earlier loss
+		{"500.00", "500.00", "66.17", 2},     // no difference: no FX posting
+	}
+	for _, c := range cases {
+		op := Conversion{Date: date(2), Ref: "FX-1", Proceeds: gbp(c.proceeds), Carried: gbp(c.carried), From: "1290", To: chart.Bank}
+		j, err := op.Journal()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(j.Postings()) != c.postings {
+			t.Errorf("%+v: %d postings, want %d", c, len(j.Postings()), c.postings)
+		}
+		post(t, book, op)
+		if got, _ := book.Balance(chart.ExchangeDiff); got.String() != "GBP "+c.wantFX {
+			t.Errorf("FX balance after %s/%s = %s, want GBP %s", c.proceeds, c.carried, got, c.wantFX)
+		}
+	}
+	if got, _ := book.Balance("1290"); got.String() != "GBP -19500.00" {
+		t.Errorf("currency account carrying = %s", got)
+	}
+}

@@ -210,7 +210,7 @@ func (ap *batchApplier) ensureBanks(names []string) {
 			ap.issue("bank account %q: %v", name, err)
 			continue
 		}
-		ap.a.banks = append(ap.a.banks, bankAcct{code, name})
+		ap.a.banks = append(ap.a.banks, bankAcct{Code: code, Name: name})
 		ap.banks[key] = code
 		ap.note("Added bank account: " + name + ".")
 	}

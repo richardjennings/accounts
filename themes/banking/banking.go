@@ -78,3 +78,41 @@ func (c Charge) Journal() (ledger.Journal, error) {
 	}
 	return j.WithRef(c.Ref), nil
 }
+
+// Conversion sells a foreign-currency balance for the company currency: the
+// proceeds arrive in a company-currency account, the foreign account gives up
+// the carrying value of the currency sold, and the difference is a realised
+// exchange gain or loss. Proceeds and Carried are both in the company
+// currency; the caller computes Carried from the foreign account's carrying
+// value and the share of its currency balance sold.
+type Conversion struct {
+	Date     ledger.Date
+	Ref      string
+	Proceeds money.Money // what the sale realised, into To
+	Carried  money.Money // what the currency sold was carried at, out of From
+	From     string      // the foreign-currency account
+	To       string      // defaults to chart.Bank
+	FX       string      // defaults to chart.ExchangeDiff
+}
+
+func (c Conversion) Journal() (ledger.Journal, error) {
+	postings := []ledger.Posting{
+		{Account: acct(c.To, chart.Bank), Side: ledger.Debit, Amount: c.Proceeds},
+		{Account: c.From, Side: ledger.Credit, Amount: c.Carried},
+	}
+	diff, err := c.Proceeds.Sub(c.Carried)
+	if err != nil {
+		return ledger.Journal{}, err
+	}
+	switch {
+	case diff.IsPositive(): // realised more than the carrying value: a gain
+		postings = append(postings, ledger.Posting{Account: acct(c.FX, chart.ExchangeDiff), Side: ledger.Credit, Amount: diff})
+	case diff.IsNegative():
+		postings = append(postings, ledger.Posting{Account: acct(c.FX, chart.ExchangeDiff), Side: ledger.Debit, Amount: diff.Abs()})
+	}
+	j, err := ledger.NewJournal(c.Date, "Currency conversion "+c.Ref, postings...)
+	if err != nil {
+		return ledger.Journal{}, err
+	}
+	return j.WithRef(c.Ref), nil
+}

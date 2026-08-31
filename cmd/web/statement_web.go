@@ -76,12 +76,13 @@ func (a *app) stmtUploadView() *stmtUploadView {
 	if p == nil {
 		return nil
 	}
-	v := &stmtUploadView{BankName: a.bankName(p.BankCode), FileName: p.FileName, Headers: p.Table.Header, Spec: p.Spec, Total: money.Zero(a.co.Currency)}
+	cur := a.bankCurrency(p.BankCode)
+	v := &stmtUploadView{BankName: a.bankName(p.BankCode), FileName: p.FileName, Headers: p.Table.Header, Spec: p.Spec, Total: money.Zero(cur)}
 	if err := p.Spec.Validate(p.Table); err != nil {
 		v.SpecErr = err.Error()
 		return v
 	}
-	lines, issues := importer.ReadStatement(p.Table, p.Spec, a.co.Currency)
+	lines, issues := importer.ReadStatement(p.Table, p.Spec, cur)
 	v.Lines, v.Skipped = len(lines), len(issues)
 	for i, l := range lines {
 		v.Total, _ = v.Total.Add(l.Amount)
@@ -193,7 +194,7 @@ func (a *app) statementRoutes(mux *http.ServeMux) {
 			http.Redirect(w, r, "/banking/statements", http.StatusSeeOther)
 			return
 		}
-		lines, issues := importer.ReadStatement(p.Table, p.Spec, a.co.Currency)
+		lines, issues := importer.ReadStatement(p.Table, p.Spec, a.bankCurrency(p.BankCode))
 		// Overlapping exports are safe: a line equal to one already imported is a
 		// duplicate. Counts, not a set — a statement may legitimately hold two
 		// identical movements, so only as many copies as already exist are skipped.

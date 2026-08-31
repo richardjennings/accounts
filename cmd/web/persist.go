@@ -65,6 +65,7 @@ type snapshot struct {
 	SalesInvoices  []invoiceLedgerDTO
 	PurchaseBills  []billLedgerDTO
 	StatementSpecs map[string]importer.StatementSpec
+	FXBalances     map[string]money.Money
 }
 
 // snapshot builds the persisted form of the current state. The caller holds a.mu.
@@ -73,6 +74,7 @@ func (a *app) buildSnapshot() snapshot {
 		Co: a.co, Today: a.today, ClosedThrough: a.closedThrough, Seq: a.seq, MainBank: a.mainBank,
 		Banks: a.banks, Reg: a.reg, Costs: a.costs, StmtLines: a.stmtLines, Employees: a.employees, Assets: a.assets,
 		StatementSpecs: a.statementSpecs,
+		FXBalances:     a.fxBalances,
 	}
 	for _, ref := range a.invoiceOrder {
 		if d, ok := a.invoiceDocs[ref]; ok {
@@ -176,6 +178,7 @@ func (a *app) restore(s *snapshot) error {
 	a.co, a.today, a.closedThrough, a.seq, a.mainBank = s.Co, s.Today, s.ClosedThrough, s.Seq, s.MainBank
 	a.banks, a.reg, a.costs, a.employees, a.assets = s.Banks, s.Reg, s.Costs, s.Employees, s.Assets
 	a.statementSpecs = s.StatementSpecs
+	a.fxBalances = s.FXBalances
 	a.stmtLines = s.StmtLines
 	a.book = book
 

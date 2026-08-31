@@ -28,6 +28,7 @@ const (
 	Sales                   = "4000"
 	RechargedExpenses       = "4100"
 	OtherIncome             = "4900"
+	ExchangeDiff            = "4950"
 	CostOfSales             = "5000"
 	Salaries                = "7000"
 	EmployerNIC             = "7010"
@@ -75,6 +76,7 @@ func UKMicroLtd() []ledger.Account {
 		{Code: Sales, Name: "Sales", Type: ledger.Income},
 		{Code: RechargedExpenses, Name: "Recharged expenses", Type: ledger.Income},
 		{Code: OtherIncome, Name: "Other income", Type: ledger.Income},
+		{Code: ExchangeDiff, Name: "Exchange differences", Type: ledger.Income}, // gains credit; losses debit, so it can carry either balance
 
 		// Expenses (5xxx-8xxx)
 		{Code: CostOfSales, Name: "Cost of sales", Type: ledger.Expense},
