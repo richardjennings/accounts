@@ -151,9 +151,13 @@ type employee struct {
 }
 
 // bankAcct is a bank account the company holds; cash moves through one of these.
-type bankAcct struct{ Code, Name string }
+// bankAcct is a bank account the company holds. Currency is set when the
+// account is held in another currency ("" = the company currency); the ledger
+// then carries its value in the company currency while fxBalances tracks the
+// currency amount.
+type bankAcct struct{ Code, Name, Currency string }
 
-func defaultBanks() []bankAcct { return []bankAcct{{chart.Bank, "Bank current account"}} }
+func defaultBanks() []bankAcct { return []bankAcct{{Code: chart.Bank, Name: "Bank current account"}} }
 
 // invoiceDoc is the itemised detail behind a raised invoice — its lines and totals
 // — kept so the invoice can be listed and printed. The sales ledger holds only the
@@ -212,6 +216,7 @@ type app struct {
 	lastDividend   *dividendRun
 	closedThrough  ledger.Date // periods on/before this date are closed (locked)
 	lastImport     *importReport
+	fxBalances     map[string]money.Money // currency balances of foreign-currency bank accounts
 	pendingStmt    *pendingStatement
 	statementSpecs map[string]importer.StatementSpec // saved column mappings by bank code
 	dataPath       string                            // save file; empty = in-memory only
@@ -675,6 +680,8 @@ type bankRow struct {
 	Code, Name string
 	Balance    money.Money
 	Main       bool
+	Currency   string
+	FXBal      money.Money
 }
 
 type reconLine struct {
@@ -703,9 +710,9 @@ func (a *app) reconciliations() []reconView {
 		}
 		byBank[l.BankCode] = append(byBank[l.BankCode], i)
 	}
-	cur := a.co.Currency
 	var out []reconView
 	for _, code := range order {
+		cur := a.bankCurrency(code)
 		name := code
 		for _, b := range a.banks {
 			if b.Code == code {
@@ -713,6 +720,9 @@ func (a *app) reconciliations() []reconView {
 			}
 		}
 		rv := reconView{BankCode: code, BankName: name, Ledger: a.bal(code)}
+		if a.isForeign(code) {
+			rv.Ledger = a.fxBal(code) // the statement is in the account's currency
+		}
 		close, reconciled, sum := money.Zero(cur), money.Zero(cur), money.Zero(cur)
 		anyBalance := false
 		for _, idx := range byBank[code] {
@@ -807,6 +817,7 @@ type pageData struct {
 	Employees            []employeeView
 	StudentLoanPlanNames []string
 	Banks                []bankAcct
+	FXBanks              []bankAcct
 	BankRows             []bankRow
 	MainBank             string
 
@@ -878,7 +889,16 @@ func (a *app) render(w http.ResponseWriter, page string) {
 	d.LastImport = a.lastImport
 	d.Banks, d.MainBank = a.banks, a.main()
 	for _, b := range a.banks {
-		d.BankRows = append(d.BankRows, bankRow{Code: b.Code, Name: b.Name, Balance: a.bal(b.Code), Main: b.Code == a.main()})
+		if b.Currency != "" {
+			d.FXBanks = append(d.FXBanks, b)
+		}
+	}
+	for _, b := range a.banks {
+		row := bankRow{Code: b.Code, Name: b.Name, Balance: a.bal(b.Code), Main: b.Code == a.main(), Currency: b.Currency}
+		if b.Currency != "" {
+			row.FXBal = a.fxBal(b.Code)
+		}
+		d.BankRows = append(d.BankRows, row)
 	}
 	d.Officers, d.Members, d.Nominal = a.reg.Officers, a.reg.Members, a.reg.Nominal
 	d.TotalShares, d.IssuedCapital, d.LastDividend = a.reg.TotalShares(), a.reg.IssuedCapital(), a.lastDividend
@@ -1224,6 +1244,9 @@ func (a *app) routes() *http.ServeMux {
 		if !ok {
 			return nil, "", fmt.Errorf("choose an invoice to record the receipt against")
 		}
+		if a.isForeign(a.bankCode(r)) {
+			return a.foreignReceipt(r, ref, inv.Outstanding())
+		}
 		m, err := a.amount(r)
 		if err != nil {
 			return nil, "", err
@@ -1335,6 +1358,9 @@ func (a *app) routes() *http.ServeMux {
 		if to == "" {
 			to = chart.Cash
 		}
+		if a.bankCurrency(from).Code != a.bankCurrency(to).Code {
+			return nil, "", fmt.Errorf("those accounts hold different currencies — use the currency conversion form instead")
+		}
 		return banking.Transfer{Date: a.date(r), Ref: a.ref("TFR"), Amount: m, From: from, To: to}, "Transfer recorded", nil
 	}))
 	mux.HandleFunc("/banking/accounts/add", func(w http.ResponseWriter, r *http.Request) {
@@ -1354,7 +1380,11 @@ func (a *app) routes() *http.ServeMux {
 		} else if err := a.book.AddAccount(ledger.Account{Code: code, Name: name, Type: ledger.Asset}); err != nil {
 			a.flash = "⚠ " + err.Error()
 		} else {
-			a.banks = append(a.banks, bankAcct{code, name})
+			ccy := strings.ToUpper(strings.TrimSpace(r.FormValue("currency")))
+			if _, ok := money.Lookup(ccy); !ok || ccy == a.co.Currency.Code {
+				ccy = ""
+			}
+			a.banks = append(a.banks, bankAcct{Code: code, Name: name, Currency: ccy})
 			a.flash = "✓ Added bank account: " + name
 		}
 		http.Redirect(w, r, "/banking", http.StatusSeeOther)
@@ -1697,6 +1727,7 @@ func (a *app) routes() *http.ServeMux {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	})
 	a.statementRoutes(mux)
+	a.fxRoutes(mux)
 	return mux
 }
 

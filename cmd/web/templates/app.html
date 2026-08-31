@@ -354,8 +354,13 @@
 {{if .OpenInvoices}}<div class="row">
  <div class="card"><h3>Record a receipt</h3><form method="post" action="/sales/receipts/record">
   <label>Against invoice<select name="invoice">{{range .OpenInvoices}}<option value="{{.Ref}}">{{.Ref}} — {{.Customer}} ({{money .Outstanding}} outstanding)</option>{{end}}</select></label>
-  <label>Amount received<input name="amount" placeholder="0.00"></label>
-  {{template "bankselect" .}}{{template "datefield" .}}<button>Record receipt</button></form></div>
+  <label>Amount received{{if .FXBanks}} ({{.Co.Currency.Code}} value){{end}}<input name="amount" placeholder="0.00"></label>
+  {{template "bankselect" .}}{{template "datefield" .}}
+  {{if .FXBanks}}<div class="row">
+   <label>If the account holds another currency: amount in that currency<input name="ccy_amount" placeholder="0.00"></label>
+   <label class="chk" style="align-self:end"><input type="checkbox" name="settle" checked> Settles the invoice in full (any difference is an exchange gain or loss)</label>
+  </div>{{end}}
+  <button>Record receipt</button></form></div>
  <div class="card snap"><h3>At a glance</h3>
   <div class="kv"><span>Owed by customers</span><b>{{money .Debtors}}</b></div>
   <div class="kv"><span>Bank</span><b>{{money .Bank}}</b></div></div>
@@ -469,11 +474,19 @@
 {{define "page:banking"}}<h1>Banking · Accounts</h1>
 <div class="row">
  <div class="card"><h3>Add a bank account</h3><form method="post" action="/banking/accounts/add">
-  <label>Account name<input name="name" placeholder="Savings account"></label><button>Add account</button></form></div>
+  <label>Account name<input name="name" placeholder="Savings account"></label>
+  <label style="max-width:140px">Currency<input name="currency" placeholder="GBP"></label>
+  <button>Add account</button></form></div>
+ <div class="card"><h3>Account currency</h3><form method="post" action="/banking/accounts/currency">
+  {{template "bankselect" .}}
+  <label style="max-width:140px">Currency<input name="currency" placeholder="USD"></label>
+  <label>Balance in that currency now<input name="opening" placeholder="0.00"></label>
+  <button>Set currency</button></form>
+  <p class="muted">A foreign-currency account keeps two balances: what it holds in its own currency, and the value it is carried at in the books. Set the currency before importing its statements. Leave the currency blank (or {{.Co.Currency.Code}}) to make it a {{.Co.Currency.Code}} account again.</p></div>
 </div>
 <div class="card"><h3>Bank accounts</h3>
 <table class="stmt"><tr><th>Account</th><th></th><th class="num">Balance</th><th></th></tr>
-{{range .BankRows}}<tr><td>{{.Name}}</td><td>{{if .Main}}<span class="badge">Main account</span>{{end}}</td><td class="num">{{money .Balance}}</td><td>{{if not .Main}}<form method="post" action="/banking/accounts/main"><input type="hidden" name="bank" value="{{.Code}}"><button class="link">Make main</button></form>{{end}}</td></tr>{{end}}
+{{range .BankRows}}<tr><td>{{.Name}}</td><td>{{if .Main}}<span class="badge">Main account</span>{{end}}{{if .Currency}}<span class="badge">{{.Currency}}</span>{{end}}</td><td class="num">{{if .Currency}}{{money .FXBal}} · carried {{money .Balance}}{{else}}{{money .Balance}}{{end}}</td><td>{{if not .Main}}<form method="post" action="/banking/accounts/main"><input type="hidden" name="bank" value="{{.Code}}"><button class="link">Make main</button></form>{{end}}</td></tr>{{end}}
 <tr><td>Cash</td><td></td><td class="num">{{money .Cash}}</td><td></td></tr>
 </table>
 <p class="muted">The <b>main account</b> is the default for salaries, dividends, corporation tax and other cash movements — and the pre-selected account in every form.</p></div>
@@ -487,6 +500,13 @@
   <label>To<select name="to">{{range .Banks}}<option value="{{.Code}}">{{.Name}}</option>{{end}}<option value="1210">Cash</option></select></label>
   <label>Amount<input name="amount" placeholder="0.00"></label>
   {{template "datefield" .}}<button>Transfer</button></form></div>
+ {{if .FXBanks}}<div class="card"><h3>Currency conversion</h3><form method="post" action="/banking/conversions/record">
+  <label>Sell from<select name="from">{{range .FXBanks}}<option value="{{.Code}}">{{.Name}} ({{.Currency}})</option>{{end}}</select></label>
+  <label>Amount sold (account currency)<input name="ccy_amount" placeholder="0.00"></label>
+  <label>Into<select name="to">{{range .Banks}}{{if not .Currency}}<option value="{{.Code}}"{{if eq .Code $.MainBank}} selected{{end}}>{{.Name}}</option>{{end}}{{end}}</select></label>
+  <label>{{.Co.Currency.Code}} received<input name="proceeds" placeholder="0.00"></label>
+  {{template "datefield" .}}<button>Record conversion</button></form>
+  <p class="muted">The currency sold leaves at its carried value; the difference between that and what the sale realised is an exchange gain or loss.</p></div>{{end}}
  <div class="card snap"><h3>At a glance</h3>
   <div class="kv"><span>Bank</span><b>{{money .Bank}}</b></div>
   <div class="kv"><span>Cash</span><b>{{money .Cash}}</b></div></div>
