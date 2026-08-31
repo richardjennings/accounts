@@ -221,7 +221,9 @@ func (ap *batchApplier) ensureBanks(names []string) {
 // export does not name are posted to the main account, so this matters.
 func (ap *batchApplier) chooseMain(b *importer.Batch) {
 	a := ap.a
-	if a.main() != chart.Bank || !a.bal(chart.Bank).IsZero() && a.bal(chart.Bank).Equal(a.reg.IssuedCapital()) == false {
+	bal := a.bal(chart.Bank)
+	untouched := bal.IsZero() || bal.Equal(a.reg.IssuedCapital()) // nothing, or only the seeded share capital
+	if a.main() != chart.Bank || !untouched {
 		return
 	}
 	uses := map[string]int{}
@@ -269,6 +271,21 @@ func (ap *batchApplier) startFrom(b *importer.Batch) {
 		note(x.Date)
 	}
 	for _, x := range b.Salaries {
+		note(x.Date)
+	}
+	for _, x := range b.Introduced {
+		note(x.Date)
+	}
+	for _, x := range b.Interest {
+		note(x.Date)
+	}
+	for _, x := range b.Drawings {
+		note(x.Date)
+	}
+	for _, x := range b.Dividends {
+		note(x.Date)
+	}
+	for _, x := range b.TaxPayments {
 		note(x.Date)
 	}
 	if !earliest.IsZero() && earliest.Before(ap.a.co.Incorporated) {
