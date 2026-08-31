@@ -194,20 +194,23 @@ func (a *app) statementRoutes(mux *http.ServeMux) {
 			return
 		}
 		lines, issues := importer.ReadStatement(p.Table, p.Spec, a.co.Currency)
-		seen := map[string]bool{}
+		// Overlapping exports are safe: a line equal to one already imported is a
+		// duplicate. Counts, not a set — a statement may legitimately hold two
+		// identical movements, so only as many copies as already exist are skipped.
+		existing := map[string]int{}
 		for _, l := range a.stmtLines {
 			if l.BankCode == p.BankCode {
-				seen[l.Date.String()+"|"+l.Desc+"|"+l.Amount.String()] = true
+				existing[l.Date.String()+"|"+l.Desc+"|"+l.Amount.String()]++
 			}
 		}
 		added, dup := 0, 0
 		for _, l := range lines {
 			key := l.Date.String() + "|" + l.Description + "|" + l.Amount.String()
-			if seen[key] {
+			if existing[key] > 0 {
+				existing[key]--
 				dup++
 				continue
 			}
-			seen[key] = true
 			a.stmtLines = append(a.stmtLines, &stmtLine{BankCode: p.BankCode, Date: l.Date, Desc: l.Description, Amount: l.Amount, Balance: l.Balance, HasBalance: l.HasBalance})
 			added++
 		}

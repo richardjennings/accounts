@@ -59,12 +59,13 @@ func TestStatementImportFlow(t *testing.T) {
 	}
 	h := a.persistMiddleware(a.routes())
 
-	csv := []byte("Booking Date,Narrative,Value,Balance After\n01/05/2026,Client payment,1200.00,3200.00\n03/05/2026,Hosting,-36.00,3164.00\nbad,x,1,1\n")
+	// Two identical rows are two real movements, not duplicates of each other.
+	csv := []byte("Booking Date,Narrative,Value,Balance After\n01/05/2026,Client payment,1200.00,3200.00\n03/05/2026,Hosting,-36.00,3164.00\n03/05/2026,Hosting,-36.00,3128.00\nbad,x,1,1\n")
 	uploadStatement(t, h, "1200", "tide-may.csv", csv)
 
 	// The mapping page detected the odd headers and previews two lines.
 	p := page(t, h, "/banking/statements")
-	for _, want := range []string{"tide-may.csv", `<option value="Booking Date" selected>`, `<option value="Value" selected>`, `<option value="Balance After" selected>`, "2 line(s), 1 unreadable", "2026-05-01", "£1,164.00"} {
+	for _, want := range []string{"tide-may.csv", `<option value="Booking Date" selected>`, `<option value="Value" selected>`, `<option value="Balance After" selected>`, "3 line(s), 1 unreadable", "2026-05-01", "£1,128.00"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("mapping page lacks %q", want)
 		}
@@ -73,14 +74,14 @@ func TestStatementImportFlow(t *testing.T) {
 	// Remap: flip the sign, then confirm.
 	drive(t, h, "/banking/statements/map", url.Values{"col_date": {"Booking Date"}, "col_desc": {"Narrative"}, "col_amount": {"Value"}, "col_balance": {"Balance After"}, "date_order": {"dmy"}, "negate": {"1"}})
 	p = page(t, h, "/banking/statements")
-	if !strings.Contains(p, "−£1,164.00") {
+	if !strings.Contains(p, "−£1,128.00") {
 		t.Error("negate did not flip the preview total")
 	}
 	drive(t, h, "/banking/statements/map", url.Values{"col_date": {"Booking Date"}, "col_desc": {"Narrative"}, "col_amount": {"Value"}, "col_balance": {"Balance After"}, "date_order": {"dmy"}})
 	if loc := drive(t, h, "/banking/statements/confirm", nil); loc != "/banking/reconcile" {
 		t.Fatalf("confirm redirected to %s", loc)
 	}
-	if len(a.stmtLines) != 2 || a.stmtLines[0].Amount.String() != "GBP 1200.00" || a.stmtLines[1].Amount.String() != "GBP -36.00" || !a.stmtLines[0].HasBalance {
+	if len(a.stmtLines) != 3 || a.stmtLines[0].Amount.String() != "GBP 1200.00" || a.stmtLines[1].Amount.String() != "GBP -36.00" || a.stmtLines[2].Amount.String() != "GBP -36.00" || !a.stmtLines[0].HasBalance {
 		t.Fatalf("lines: %+v", a.stmtLines)
 	}
 	if a.statementSpecs["1200"].Amount != "Value" {
@@ -90,7 +91,7 @@ func TestStatementImportFlow(t *testing.T) {
 	// Re-uploading the same file imports nothing new, via the saved preset.
 	uploadStatement(t, h, "1200", "tide-may.csv", csv)
 	drive(t, h, "/banking/statements/confirm", nil)
-	if len(a.stmtLines) != 2 {
+	if len(a.stmtLines) != 3 {
 		t.Errorf("duplicates were not skipped: %d lines", len(a.stmtLines))
 	}
 
@@ -99,7 +100,7 @@ func TestStatementImportFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.statementSpecs["1200"].Amount != "Value" || len(b.stmtLines) != 2 {
+	if b.statementSpecs["1200"].Amount != "Value" || len(b.stmtLines) != 3 {
 		t.Errorf("restore: %+v, %d lines", b.statementSpecs, len(b.stmtLines))
 	}
 }
