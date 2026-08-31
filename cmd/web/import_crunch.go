@@ -79,8 +79,7 @@ func (a *app) importArchive(w http.ResponseWriter, r *http.Request, profile impo
 		return
 	}
 	rep := a.applyBatch(profile.Name(), batch, issues)
-	a.lastImport = rep
-	a.save()
+	a.lastImport = rep // persistMiddleware saves after the request
 	posted := 0
 	for _, c := range rep.Counts {
 		posted += c.N

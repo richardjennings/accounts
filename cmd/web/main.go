@@ -977,6 +977,18 @@ func main() {
 	if a.dataPath != "" {
 		log.Printf("saving to %s", a.dataPath)
 	}
+	mux := a.routes()
+
+	ln, err := net.Listen("tcp", *addr)
+	if err != nil {
+		log.Fatalf("cannot listen on %s: %v", *addr, err)
+	}
+	log.Printf("Virtual Accounts UI on http://%s", ln.Addr())
+	log.Fatal(http.Serve(ln, a.persistMiddleware(mux)))
+}
+
+// routes builds the HTTP handlers over the app's state.
+func (a *app) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -1675,13 +1687,7 @@ func main() {
 		a.mu.Unlock()
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	})
-
-	ln, err := net.Listen("tcp", *addr)
-	if err != nil {
-		log.Fatalf("cannot listen on %s: %v", *addr, err)
-	}
-	log.Printf("Virtual Accounts UI on http://%s", ln.Addr())
-	log.Fatal(http.Serve(ln, a.persistMiddleware(mux)))
+	return mux
 }
 
 // persistMiddleware saves the company after any state-changing (POST) request.
