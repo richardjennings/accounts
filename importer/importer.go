@@ -64,22 +64,23 @@ func (t Tables) Names() []string {
 // Every amount is in the company's currency. A record's Memo carries anything
 // worth keeping that has no field of its own, such as a foreign-currency figure.
 type Batch struct {
-	Customers   []Party
-	Suppliers   []Party
-	Banks       []string // bank account names to make sure exist
-	VATCharged  bool     // any sales invoice charged VAT
-	Invoices    []Invoice
-	CreditNotes []CreditNote
-	Receipts    []Receipt
-	Bills       []Bill
-	Transfers   []Transfer
-	Interest    []Interest
-	Salaries    []Salary
-	Dividends   []Dividend
-	Drawings    []Drawing
-	Introduced  []Introduced
-	TaxPayments []TaxPayment
-	TaxRebates  []TaxRebate
+	Customers    []Party
+	Suppliers    []Party
+	Banks        []string          // bank account names to make sure exist
+	BankCurrency map[string]string // currency code by bank name, when a bank is not in the company currency
+	VATCharged   bool              // any sales invoice charged VAT
+	Invoices     []Invoice
+	CreditNotes  []CreditNote
+	Receipts     []Receipt
+	Bills        []Bill
+	Transfers    []Transfer
+	Interest     []Interest
+	Salaries     []Salary
+	Dividends    []Dividend
+	Drawings     []Drawing
+	Introduced   []Introduced
+	TaxPayments  []TaxPayment
+	TaxRebates   []TaxRebate
 }
 
 // Party is a customer or supplier.
@@ -113,15 +114,18 @@ type CreditNote struct {
 	Gross   money.Money
 }
 
-// Receipt is money in from a customer.
+// Receipt is money in from a customer. Amount is the value in the company
+// currency; CcyAmount is what was paid when the payment was in the currency of
+// a foreign bank account (zero otherwise).
 type Receipt struct {
-	Date     ledger.Date
-	Ref      string
-	Customer string
-	Invoice  string // the invoice it settles, when matched
-	Bank     string // bank name; "" means petty cash
-	Amount   money.Money
-	Memo     string
+	Date      ledger.Date
+	Ref       string
+	Customer  string
+	Invoice   string // the invoice it settles, when matched
+	Bank      string // bank name; "" means petty cash
+	Amount    money.Money
+	CcyAmount money.Money
+	Memo      string
 }
 
 // Bill is a cost: a supplier bill with how and whether it was paid.

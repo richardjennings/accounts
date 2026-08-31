@@ -74,6 +74,9 @@ func TestReadExport(t *testing.T) {
 	if want := []string{"GBP Wise", "Tide", "Tide Savings", "USD Wise"}; strings.Join(b.Banks, ",") != strings.Join(want, ",") {
 		t.Errorf("banks = %v, want %v", b.Banks, want)
 	}
+	if len(b.BankCurrency) != 1 || b.BankCurrency["USD Wise"] != "USD" {
+		t.Errorf("bank currencies = %v, want USD Wise only", b.BankCurrency)
+	}
 	if !b.VATCharged {
 		t.Error("VATCharged should be set: INV-3 charges VAT")
 	}
@@ -103,6 +106,12 @@ func TestReadExport(t *testing.T) {
 	// $100 left over, unallocated at face value; £120 settles INV-3 exactly even
 	// though INV-6 is older and still open; Nobody Ltd has no invoice, so its £5
 	// is unallocated.
+	if r := b.Receipts[0]; r.CcyAmount.String() != "USD 1000.00" {
+		t.Errorf("receipt 0 currency amount = %s", r.CcyAmount)
+	}
+	if r := b.Receipts[4]; !r.CcyAmount.IsZero() { // INV-3 is a GBP invoice
+		t.Errorf("GBP receipt carries a currency amount: %s", r.CcyAmount)
+	}
 	got := receiptSummary(b.Receipts)
 	want := "INV-1 GBP 750.00 USD Wise|INV-2 GBP 375.00 USD Wise|INV-2 GBP 1125.00 petty|- GBP 100.00 petty|INV-3 GBP 120.00 Tide|- GBP 5.00 Tide"
 	if got != want {

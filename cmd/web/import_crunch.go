@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"sort"
 	"strings"
@@ -111,7 +112,7 @@ func (a *app) applyBatch(profile string, b *importer.Batch, issues []importer.Is
 	for _, i := range issues {
 		ap.rep.Issues = append(ap.rep.Issues, i.String())
 	}
-	ap.ensureBanks(b.Banks)
+	ap.ensureBanks(b.Banks, b.BankCurrency)
 	ap.chooseMain(b)
 	ap.startFrom(b)
 	ap.vatReg = b.VATCharged
@@ -128,7 +129,7 @@ func (a *app) applyBatch(profile string, b *importer.Batch, issues []importer.Is
 	ap.receipts(b.Receipts)
 	ap.bills(b.Bills)
 	for _, t := range b.Transfers {
-		ap.post("banking", "Transfers", banking.Transfer{Date: t.Date, Ref: a.ref("TFR"), Amount: t.Amount, From: ap.code(t.From, chart.Cash), To: ap.code(t.To, chart.Cash)})
+		ap.transfer(t)
 	}
 	for _, in := range b.Introduced {
 		ap.post("pay-yourself", "Funds introduced", payyourself.IntroduceFunds{Date: in.Date, Ref: a.ref("DLI"), Amount: in.Amount, Bank: ap.code(in.Bank, a.main())})
@@ -191,14 +192,22 @@ func (ap *batchApplier) issue(format string, args ...any) {
 	ap.rep.Issues = append(ap.rep.Issues, fmt.Sprintf(format, args...))
 }
 
-// ensureBanks finds or creates a ledger account for every bank name.
-func (ap *batchApplier) ensureBanks(names []string) {
+// ensureBanks finds or creates a ledger account for every bank name, and sets
+// the currency the source says an account is held in.
+func (ap *batchApplier) ensureBanks(names []string, currencies map[string]string) {
 	for _, b := range ap.a.banks {
 		ap.banks[strings.ToLower(b.Name)] = b.Code
 	}
 	for _, name := range names {
 		key := strings.ToLower(name)
-		if _, ok := ap.banks[key]; ok {
+		ccy := currencies[name]
+		if code, ok := ap.banks[key]; ok {
+			for i := range ap.a.banks {
+				if ap.a.banks[i].Code == code && ap.a.banks[i].Currency == "" && ccy != "" {
+					ap.a.banks[i].Currency = ccy
+					ap.note(name + " is held in " + ccy + " (from its name); correct it under Banking → Accounts if that is wrong.")
+				}
+			}
 			continue
 		}
 		code := ap.a.nextBankCode()
@@ -210,9 +219,13 @@ func (ap *batchApplier) ensureBanks(names []string) {
 			ap.issue("bank account %q: %v", name, err)
 			continue
 		}
-		ap.a.banks = append(ap.a.banks, bankAcct{Code: code, Name: name})
+		ap.a.banks = append(ap.a.banks, bankAcct{Code: code, Name: name, Currency: ccy})
 		ap.banks[key] = code
-		ap.note("Added bank account: " + name + ".")
+		if ccy != "" {
+			ap.note("Added bank account: " + name + ", held in " + ccy + " (from its name).")
+		} else {
+			ap.note("Added bank account: " + name + ".")
+		}
 	}
 }
 
@@ -239,7 +252,12 @@ func (ap *batchApplier) chooseMain(b *importer.Batch) {
 	}
 	best, n := "", 0
 	for name, c := range uses {
-		if name != "" && c > n {
+		// Never a foreign-currency account: records without an account are
+		// posted to the main account at company-currency values.
+		if code := ap.code(name, ""); code == "" || ap.a.isForeign(code) {
+			continue
+		}
+		if c > n {
 			best, n = name, c
 		}
 	}
@@ -303,6 +321,43 @@ func (ap *batchApplier) code(name, dflt string) string {
 		return c
 	}
 	return dflt
+}
+
+// transfer posts one movement between accounts. A movement out of a
+// foreign-currency account into a company-currency one is a conversion: the
+// source does not record the currency amount sold, so the dollars leave at the
+// account's average carried rate — no realised difference — and the residual
+// waits for a revaluation. When the carrying is already exhausted (receipts
+// missing from the source), the movement falls back to a plain transfer and is
+// reported, rather than inventing an exchange gain.
+func (ap *batchApplier) transfer(t importer.Transfer) {
+	a := ap.a
+	from, to := ap.code(t.From, chart.Cash), ap.code(t.To, chart.Cash)
+	if !a.isForeign(from) || a.isForeign(to) {
+		if a.isForeign(to) {
+			ap.issue("transfer of %s into %s on %s: the currency amount bought is not in the export; imported at face value", t.Amount, t.To, t.Date)
+		}
+		ap.post("banking", "Transfers", banking.Transfer{Date: t.Date, Ref: a.ref("TFR"), Amount: t.Amount, From: from, To: to})
+		return
+	}
+	carrying, err := a.book.BalanceAsAt(from, t.Date)
+	fxb := a.fxBal(from)
+	if err != nil {
+		carrying = a.bal(from)
+	}
+	if c, _ := carrying.Cmp(t.Amount); c < 0 || !fxb.IsPositive() {
+		ap.issue("conversion of %s out of %s on %s exceeds its carried balance of %s — receipts into it are missing from the export; imported as a plain transfer", t.Amount, t.From, t.Date, carrying)
+		ap.post("banking", "Transfers", banking.Transfer{Date: t.Date, Ref: a.ref("TFR"), Amount: t.Amount, From: from, To: to})
+		return
+	}
+	share := new(big.Rat).Quo(t.Amount.Amount().Rat(), carrying.Amount().Rat())
+	sold := money.FromRat(fxb.Currency(), new(big.Rat).Mul(fxb.Amount().Rat(), share), money.HalfUp)
+	if c, _ := sold.Cmp(fxb); c > 0 {
+		sold = fxb
+	}
+	if ap.post("banking", "Currency conversions", banking.Conversion{Date: t.Date, Ref: a.ref("FX"), Proceeds: t.Amount, Carried: t.Amount, From: from, To: to}) {
+		a.addFX(from, sold.Neg())
+	}
 }
 
 // post builds an operation's journal and posts it, unless it falls in a closed
@@ -439,8 +494,12 @@ func (ap *batchApplier) receipts(rs []importer.Receipt) {
 	a := ap.a
 	for _, r := range rs {
 		ref := a.ref("REC")
-		if !ap.post("sales", "Receipts", sales.Receipt{Date: r.Date, Ref: ref, Amount: r.Amount, Bank: ap.code(r.Bank, chart.Cash)}) {
+		bank := ap.code(r.Bank, chart.Cash)
+		if !ap.post("sales", "Receipts", sales.Receipt{Date: r.Date, Ref: ref, Amount: r.Amount, Bank: bank}) {
 			continue
+		}
+		if r.CcyAmount.IsPositive() && a.bankCurrency(bank).Code == r.CcyAmount.Currency().Code && a.isForeign(bank) {
+			a.addFX(bank, r.CcyAmount)
 		}
 		if appRef, ok := ap.refs[r.Invoice]; ok {
 			if err := a.sl.Allocate(appRef, r.Amount); err != nil {

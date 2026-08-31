@@ -81,6 +81,7 @@ type openInvoice struct {
 	ref, customer string
 	date          ledger.Date
 	foreign       bool        // issued in another currency
+	ccyCode       string      // ISO code of that currency, when known
 	ccyGross      *big.Rat    // gross in the invoice currency
 	gross         money.Money // gross in the company currency
 	openCcy       *big.Rat
@@ -110,8 +111,20 @@ func (Profile) Read(src importer.Source, cur money.Currency) (*importer.Batch, [
 	r.unsupported()
 	sort.SliceStable(r.b.Invoices, func(i, j int) bool { return r.b.Invoices[i].Date.Before(r.b.Invoices[j].Date) })
 	sort.SliceStable(r.b.Bills, func(i, j int) bool { return r.b.Bills[i].Date.Before(r.b.Bills[j].Date) })
+	sort.SliceStable(r.b.Transfers, func(i, j int) bool { return r.b.Transfers[i].Date.Before(r.b.Transfers[j].Date) })
 	for name := range r.banks {
 		r.b.Banks = append(r.b.Banks, name)
+		// Crunch account names carry the currency ("USD Wise"); the company
+		// currency and unknown codes mean a company-currency account.
+		for _, tok := range strings.Fields(name) {
+			code := currencyCode(tok)
+			if _, ok := money.Lookup(code); ok && code != cur.Code {
+				if r.b.BankCurrency == nil {
+					r.b.BankCurrency = map[string]string{}
+				}
+				r.b.BankCurrency[name] = code
+			}
+		}
 	}
 	sort.Strings(r.b.Banks)
 	return r.b, r.issues, nil
@@ -196,6 +209,7 @@ func (r *reader) invoicesAndCredits() {
 		if ccy := row.Text("Currency"); ccy != "" && ccy != r.cur.Code && ccy != "£" {
 			if cg, err := row.Money(r.cur, "Currency gross amount"); err == nil && cg.IsPositive() {
 				oi.foreign, oi.ccyGross, oi.openCcy = true, cg.Amount().Rat(), cg.Amount().Rat()
+				oi.ccyCode = currencyCode(ccy)
 				inv.Memo = fmt.Sprintf("issued in %s: %s gross", ccy, cg.Amount().String())
 				line.Description = "Invoiced in " + ccy + ": " + ccy + " " + cg.Amount().String() + " gross"
 			}
@@ -303,8 +317,14 @@ func (r *reader) receipts() {
 			if !settledGross.IsPositive() {
 				continue // too small to be a penny in the company currency
 			}
-			r.b.Receipts = append(r.b.Receipts, importer.Receipt{Date: p.date, Ref: row.Text("Ref"), Customer: customer, Invoice: oi.ref, Bank: bank, Amount: settledGross,
-				Memo: fmt.Sprintf("%s of the payment against %s", ratText(units), oi.ref)})
+			rec := importer.Receipt{Date: p.date, Ref: row.Text("Ref"), Customer: customer, Invoice: oi.ref, Bank: bank, Amount: settledGross,
+				Memo: fmt.Sprintf("%s of the payment against %s", ratText(units), oi.ref)}
+			if oi.foreign && oi.ccyCode != "" {
+				if cur, ok := money.Lookup(oi.ccyCode); ok {
+					rec.CcyAmount = money.FromRat(cur, units, money.HalfUp)
+				}
+			}
+			r.b.Receipts = append(r.b.Receipts, rec)
 			memo = append(memo, oi.ref)
 		}
 		if remaining.Sign() > 0 {
@@ -678,6 +698,22 @@ func rateOf(net, vat money.Money) decimal.Decimal {
 	}
 	q, _ := ratioContext.Divide(vat.Amount(), net.Amount())
 	return q
+}
+
+// currencyCode reads a currency symbol or code as an ISO code, or "".
+func currencyCode(s string) string {
+	switch s = strings.TrimSpace(s); s {
+	case "$":
+		return "USD"
+	case "€":
+		return "EUR"
+	case "£":
+		return "GBP"
+	}
+	if len(s) == 3 && strings.ToUpper(s) == s {
+		return s
+	}
+	return ""
 }
 
 func taxKind(s string) importer.TaxKind {
