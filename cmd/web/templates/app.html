@@ -1,0 +1,788 @@
+{{define "layout"}}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Virtual Accounts</title>
+<style>
+ *{box-sizing:border-box}
+ body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;color:#1b2733;background:#eef1f6}
+ .app{display:flex;min-height:100vh}
+ .side{width:230px;flex:none;background:#1f2d3d;color:#c7d2de;display:flex;flex-direction:column}
+ .brand{padding:16px 18px;font-weight:600;font-size:16px;color:#fff;border-bottom:1px solid #2c3e52}
+ .brand small{display:block;font-weight:400;font-size:11px;color:#7f93a8;margin-top:2px}
+ .side nav{padding:8px 0;flex:1;overflow:auto}
+ .side a{display:block;color:#c7d2de;text-decoration:none}
+ .side a.sec{padding:9px 18px;font-weight:600;font-size:14px}
+ .side a.sec:hover{background:#28394d;color:#fff}
+ .side a.sec.on{background:#28394d;color:#fff;box-shadow:inset 3px 0 0 #4f8cff}
+ .subs{background:#1a2634;padding:2px 0 6px}
+ .side a.sub{padding:6px 18px 6px 30px;font-size:13px;color:#9fb0c3}
+ .side a.sub:hover{color:#fff}
+ .side a.sub.on{color:#fff;font-weight:600;box-shadow:inset 3px 0 0 #4f8cff}
+ .resetf{padding:12px 18px;border-top:1px solid #2c3e52}
+ button.reset{width:100%;background:#3a4b60;color:#cdd8e4}
+ .body{flex:1;display:flex;flex-direction:column}
+ .cohead{background:#fff;border-bottom:1px solid #dbe3ec;padding:10px 26px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px}
+ .cohead .co b{font-size:15px}
+ .cohead .num{color:#829ab1;font-size:13px;margin-left:6px}
+ .cohead .period{font-size:13px;color:#486581}
+ .cohead .period span{color:#243b53;font-weight:600}
+ main{padding:22px 26px;max-width:1000px}
+ h1{font-size:20px;margin:0 0 16px;color:#243b53}
+ h3{font-size:14px;margin:0 0 10px;color:#334e68}
+ .flash{margin:0 0 16px;padding:10px 14px;border-radius:8px;background:#e6f4ea;border:1px solid #a6d5b8;color:#1c5c34;font-size:14px}
+ .row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;margin-bottom:8px}
+ .card{background:#fff;border:1px solid #dbe3ec;border-radius:10px;padding:15px 17px;box-shadow:0 1px 2px rgba(20,40,80,.05);margin-bottom:16px;flex:1;min-width:250px}
+ .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px;margin-bottom:18px}
+ .kpi{background:#fff;border:1px solid #dbe3ec;border-radius:10px;padding:13px 15px}
+ .kpi span{display:block;font-size:12px;color:#627d98}
+ .kpi b{display:block;font-size:20px;margin-top:4px;font-variant-numeric:tabular-nums}
+ label{display:block;font-size:13px;color:#486581;margin-bottom:9px}
+ input,select{display:block;width:100%;margin-top:3px;padding:7px 9px;border:1px solid #c2cfdc;border-radius:6px;font-size:14px}
+ textarea{display:block;width:100%;margin-top:3px;padding:8px 10px;border:1px solid #c2cfdc;border-radius:6px;font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+ code{background:#f2f6fb;padding:2px 6px;border-radius:4px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+ button{padding:8px 14px;border:0;border-radius:6px;background:#2f66d0;color:#fff;font-size:13px;font-weight:600;cursor:pointer}
+ button:hover{background:#245bc4}
+ .snap .kv{display:flex;justify-content:space-between;padding:4px 0;font-size:13px;border-bottom:1px solid #eef2f7}
+ .kv b{font-variant-numeric:tabular-nums}
+ .kv.tot{border-top:2px solid #cbd5e0;border-bottom:0;font-weight:600;margin-top:4px;padding-top:7px}
+ table{border-collapse:collapse;width:100%;font-size:13px}
+ .stmt td,.stmt th,.txns td,.txns th{padding:5px 8px;text-align:left}
+ th{color:#627d98;font-weight:600}
+ .num{text-align:right;font-variant-numeric:tabular-nums}
+ tr.tot td{border-top:1px solid #cbd5e0;font-weight:600}
+ tr.head th{background:#f2f6fb}
+ .txns .ref,.txns .date{color:#829ab1;white-space:nowrap}
+ .post{color:#486581}
+ .leg{display:inline-block;background:#eef2f8;border-radius:4px;padding:1px 6px;margin:1px 3px 1px 0;font-size:12px;font-variant-numeric:tabular-nums}
+ .muted{color:#829ab1;font-size:13px}
+ form.wide label{display:inline-block;width:48%;vertical-align:top}
+ table.lines{margin:4px 0 8px}
+ table.lines th{font-size:12px;padding:4px 5px}
+ table.lines td{padding:3px 5px;vertical-align:middle}
+ table.lines input,table.lines select{margin-top:0}
+ table.lines .qc{width:90px}
+ table.lines .ck{text-align:center;width:70px}
+ table.lines .ck input{width:auto}
+ label.chk{display:flex;align-items:center;gap:7px}
+ label.chk input{width:auto;margin-top:0}
+ form.inl{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:12px}
+ form.inl input,form.inl select{margin-top:0}
+ form.inl label{margin-bottom:0}
+ .badge{display:inline-block;background:#e6f0ff;color:#2f66d0;border-radius:4px;padding:1px 8px;font-size:11px;font-weight:600}
+ button.link{background:none;color:#2f66d0;padding:0;font-weight:600}
+ button.link:hover{background:none;text-decoration:underline}
+ .stmt form{display:inline}
+ .recharge{border:1px dashed #c2cfdc;border-radius:8px;padding:10px 12px;margin:6px 0 12px;background:#fafcff}
+ .recharge h4{margin:0 0 6px;font-size:13px;color:#334e68}
+ .recharge label.chk{padding:3px 0}
+ a.btn{display:inline-block;background:#2f66d0;color:#fff;padding:8px 14px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;margin-right:8px}
+ a.btn:hover{background:#245bc4}
+ a.btn.ghost{background:#eef2f8;color:#2f66d0}
+ .jnl{padding:12px 15px}
+ .jnl-h{margin-bottom:6px;overflow:hidden}.jnl-h .date{color:#829ab1;margin-right:8px}.jnl-h .ref{color:#829ab1;font-size:12px}
+ form.rev{float:right;display:inline}
+ .leg[title]{cursor:help}
+ details.explain{margin-top:8px}
+ details.explain summary{cursor:pointer;color:#2f66d0;font-size:13px;font-weight:600}
+ details.explain ul.fx{margin:8px 0 4px;padding-left:18px;font-size:13px;color:#334e68}
+ details.explain ul.fx li{margin:3px 0}
+ .principle{font-size:13px;color:#486581;background:#f2f6fb;border-left:3px solid #4f8cff;padding:7px 10px;border-radius:0 6px 6px 0;margin:6px 0 0}
+ dl.learn{margin:0}dl.learn dt{font-weight:600;color:#243b53;margin-top:10px}dl.learn dd{margin:2px 0 0;color:#486581;font-size:14px}
+ ol.learn,ul.learn{margin:4px 0;padding-left:20px}ol.learn li{margin:6px 0}
+</style></head>
+<body><div class="app">
+ <aside class="side">
+  <div class="brand">Virtual Accounts<small>educational game</small></div>
+  <nav>
+   {{range .Nav}}
+    <a class="sec{{if eq .ID $.Section}} on{{end}}" href="{{.Href}}">{{.Label}}</a>
+    {{if and .Items (eq .ID $.Section)}}<div class="subs">
+     {{range .Items}}<a class="sub{{if eq .ID $.Active}} on{{end}}" href="{{.Href}}">{{.Label}}</a>{{end}}
+    </div>{{end}}
+   {{end}}
+  </nav>
+  <form class="resetf" method="post" action="/reset"><button class="reset">Reset company</button></form>
+ </aside>
+ <div class="body">
+  <div class="cohead">
+   <div class="co"><b>{{.Co.Name}}</b><span class="num">{{.Co.Number}}</span>{{if .Co.VATRegistered}}<span class="num">VAT {{.Co.VATNumber}}</span>{{end}}</div>
+   <div class="period">{{.FY}} &nbsp;·&nbsp; <span>Today: {{.Today}}</span></div>
+  </div>
+  <main>
+   {{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+   {{.Content}}
+  </main>
+ </div>
+</div></body></html>{{end}}
+
+
+{{define "datefield"}}<label>Date<input type="date" name="date" value="{{.Today}}"></label>{{end}}
+
+
+{{define "bankselect"}}<label>Bank account<select name="bank">{{range .Banks}}<option value="{{.Code}}"{{if eq .Code $.MainBank}} selected{{end}}>{{.Name}}{{if eq .Code $.MainBank}} (main){{end}}</option>{{end}}</select></label>{{end}}
+
+
+{{define "payslip"}}{{with .Payroll}}<div class="card snap"><h3>Last payroll run</h3>
+ <div class="kv"><span>Gross</span><b>{{money .Gross}}</b></div>
+ {{if pos .BenefitsInKind}}<div class="kv"><span>Benefits in kind (taxable)</span><b>{{money .BenefitsInKind}}</b></div>{{end}}
+ <div class="kv"><span>Income tax (PAYE)</span><b>{{money .IncomeTax}}</b></div>
+ <div class="kv"><span>Employee NI</span><b>{{money .EmployeeNIC}}</b></div>
+ {{if pos .StudentLoan}}<div class="kv"><span>Student loan</span><b>{{money .StudentLoan}}</b></div>{{end}}
+ {{if pos .EmployeePension}}<div class="kv"><span>Pension (employee)</span><b>{{money .EmployeePension}}</b></div>{{end}}
+ <div class="kv tot"><span>Net</span><b>{{money .Net}}</b></div>
+ <div class="kv"><span>Employer NI</span><b>{{money .EmployerNIC}}</b></div>
+ {{if pos .Class1A}}<div class="kv"><span>Employer Class 1A (on benefits)</span><b>{{money .Class1A}}</b></div>{{end}}
+ {{if pos .EmployerPension}}<div class="kv"><span>Pension (employer)</span><b>{{money .EmployerPension}}</b></div>{{end}}
+ <div class="kv"><span>Cost to company</span><b>{{money .TotalCost}}</b></div></div>{{end}}{{end}}
+
+
+{{define "page:pay-yourself.employees"}}<h1>Pay Yourself · Employees</h1>
+<div class="row">
+ <div class="card"><h3>Add an employee</h3><form method="post" action="/pay-yourself/employees/add">
+  <label>Name<input name="name" placeholder="Jane Smith"></label>
+  <label>Annual salary<input name="amount" placeholder="30000.00"></label>
+  <label>Tax code<input name="taxcode" value="1257L"></label>
+  <label>Student loan<select name="plan"><option value="">None</option>{{range .StudentLoanPlanNames}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
+  <label>Benefits in kind (P11D, optional)<input name="bik" placeholder="0.00"></label>
+  <label class="chk"><input type="checkbox" name="pension" value="1"> Enrol in workplace pension</label>
+  <button>Add employee</button></form></div>
+ {{template "payslip" .}}
+</div>
+{{if .Employees}}<div class="card"><h3>Employees</h3>
+<table class="stmt"><tr><th>Name</th><th>Tax code</th><th>Student loan</th><th class="num">Salary</th><th></th></tr>
+{{range .Employees}}<tr><td>{{.Name}}</td><td>{{.TaxCode}}</td><td>{{.Plan}}</td><td class="num">{{money .Salary}}</td><td><form method="post" action="/pay-yourself/employees/pay"><input type="hidden" name="emp" value="{{.Index}}"><button>Run payroll</button></form></td></tr>{{end}}
+</table></div>{{end}}
+{{template "activity" .}}{{end}}
+
+
+{{define "activity"}}{{if .Activity}}<div class="card"><h3>Recent activity</h3>
+<table class="txns"><tr><th>Date</th><th>Ref</th><th>Details</th><th>Postings</th></tr>
+{{range .Activity}}<tr><td class="date">{{.Date}}</td><td class="ref">{{.Ref}}</td><td>{{.Narrative}}</td><td class="post">{{range .Postings}}<span class="leg" title="{{.Effect}}">{{.Side}} {{.Account}} {{.Amount}}</span>{{end}}</td></tr>{{end}}
+</table></div>
+<p class="muted">Hover a posting to see what it does; the <a href="/accounting/journals">Journals</a> page explains each entry in full.</p>{{end}}{{end}}
+
+
+{{define "page:learn"}}<h1>Learn</h1>
+<div class="card"><h3>What this is</h3>
+<p>This is an <b>educational game</b>: you run a virtual UK limited company and keep its books properly. It produces <b>fully correct, rules-abiding accounts</b> — real double-entry bookkeeping, UK tax, statutory FRS 105 accounts as iXBRL — but it is a <b>game</b>: nothing is ever filed or sent anywhere. Data comes in only by CSV import; results leave only as documents you generate.</p></div>
+<div class="card"><h3>The six sections</h3>
+<dl class="learn">
+ <dt>Company</dt><dd>Who you are: name, registered number, financial year, directors &amp; shareholders, and CSV import.</dd>
+ <dt>Sales</dt><dd>Money coming in: itemised invoices (with VAT and expense recharges), receipts, cash sales, credit notes.</dd>
+ <dt>Expenses</dt><dd>Money going out: supplier bills, payments, direct expenses, mileage.</dd>
+ <dt>Banking</dt><dd>Your accounts, transfers, interest &amp; charges — and reconciling a bank statement against your books.</dd>
+ <dt>Pay Yourself</dt><dd>Salary (PAYE, NI, pension), dividends allocated by shareholding, and the director's loan account.</dd>
+ <dt>Company Tax</dt><dd>Corporation tax on adjusted profit, and (when VAT registered) the nine-box VAT return.</dd>
+ <dt>Accounting</dt><dd>The engine room: trial balance, P&amp;L, balance sheet, journals (each explained), and year-end accounts as iXBRL.</dd>
+</dl></div>
+<div class="card"><h3>Try this first — your first month</h3>
+<ol class="learn">
+ <li>Set your company up under <a href="/company">Company · Details</a>, then look at the <a href="/company/people">directors &amp; shares</a> (you already own 100 shares).</li>
+ <li>Raise an <a href="/sales">invoice</a> to a customer, then record the <a href="/sales/receipts">receipt</a> when they pay.</li>
+ <li>Record an <a href="/expenses/direct">expense</a> — then recharge it to a customer on a new invoice.</li>
+ <li>Run a <a href="/pay-yourself">salary</a> for yourself and declare a <a href="/pay-yourself/dividends">dividend</a>.</li>
+ <li>Open the <a href="/accounting/journals">Journals</a> and expand one — see exactly what each debit and credit does.</li>
+ <li>Generate your <a href="/accounting/accounts">year-end accounts</a> as an iXBRL document, then <a href="/company/financial-year">close the year</a>.</li>
+</ol></div>
+<div class="card"><h3>Key terms</h3>
+<dl class="learn">
+ <dt>Double-entry</dt><dd>Every transaction has two equal sides — a debit and a credit — so the books always balance.</dd>
+ <dt>Debit / credit</dt><dd>The two sides of a posting. Assets and expenses go up on the debit side; liabilities, income and equity go up on the credit side.</dd>
+ <dt>Ledger</dt><dd>The complete record of every journal. Control accounts (like trade debtors) summarise the subsidiary ledgers behind them.</dd>
+ <dt>VAT</dt><dd>Value Added Tax: you charge output VAT on sales and reclaim input VAT on purchases; the difference is the VAT return.</dd>
+ <dt>Corporation tax</dt><dd>Tax on the company's profit, after adjusting accounting profit for tax (adding back depreciation, deducting capital allowances).</dd>
+ <dt>Dividend</dt><dd>A share of profit paid to shareholders — only out of distributable reserves, and split by shareholding.</dd>
+ <dt>Retained earnings</dt><dd>Accumulated profit kept in the company. The year-end close moves each year's profit here.</dd>
+ <dt>Reconciliation</dt><dd>Checking your books against an external record — like a bank statement — until they agree.</dd>
+ <dt>iXBRL</dt><dd>Inline XBRL: accounts that read normally in a browser but carry machine-readable tags — the format filed at Companies House.</dd>
+</dl></div>{{end}}
+
+
+{{define "page:overview"}}<h1>Overview</h1>
+<div class="kpis">
+ <div class="kpi"><span>Bank</span><b>{{money .Bank}}</b></div>
+ <div class="kpi"><span>Profit ({{.FY}})</span><b>{{money .Profit}}</b></div>
+ <div class="kpi"><span>Distributable reserves</span><b>{{money .Reserves}}</b></div>
+ <div class="kpi"><span>PAYE / NI owed</span><b>{{money .PAYE}}</b></div>
+ <div class="kpi"><span>Corporation tax due</span><b>{{money .CorpTaxDue}}</b></div>
+ <div class="kpi"><span>VAT owed</span><b>{{money .VATOwed}}</b></div>
+ <div class="kpi"><span>Director's loan</span><b>{{money .DirLoan}}</b></div>
+</div>
+{{if .AllJournals}}<div class="card"><h3>Recent transactions</h3>
+<table class="txns"><tr><th>Date</th><th>Ref</th><th>Details</th><th>Postings</th></tr>
+{{range .AllJournals}}<tr><td class="date">{{.Date}}</td><td class="ref">{{.Ref}}</td><td>{{.Narrative}}</td><td class="post">{{range .Postings}}<span class="leg">{{.Side}} {{.Account}} {{.Amount}}</span>{{end}}</td></tr>{{end}}
+</table></div>
+{{else}}<p class="muted">No transactions yet — set up your company under <a href="/company">Company</a>, then start recording under a section on the left.</p>{{end}}{{end}}
+
+
+{{define "page:company"}}<h1>Company · Details</h1>
+<div class="row">
+ <div class="card"><h3>Registered details</h3><form method="post" action="/company/details">
+  <label>Company name<input name="name" value="{{.Co.Name}}"></label>
+  <label>Company number<input name="number" value="{{.Co.Number}}"></label>
+  <label>SIC code (nature of business)<input name="sic" value="{{.Co.SICCode}}"></label>
+  <label>Registered office<input name="office" value="{{.Co.RegisteredOffice}}"></label>
+  <label>Date of incorporation<input type="date" name="incorporated" value="{{.Co.Incorporated}}"></label>
+  <label>Financial year-end (day &amp; month)<input type="date" name="yearend" value="{{.YearEndDate}}"></label>
+  <label class="chk"><input type="checkbox" name="vatreg" value="1"{{if .Co.VATRegistered}} checked{{end}}> VAT registered</label>
+  <label>VAT number<input name="vatnumber" value="{{.Co.VATNumber}}" placeholder="GB123456789"></label>
+  <button>Save details</button></form>
+  <p class="muted">Base currency {{.Co.Currency.Code}}. Only the day and month of the year-end are used (it is the accounting reference date). Uncheck <b>VAT registered</b> to hide VAT from sales and expenses — a company below the registration threshold does not charge it.</p></div>
+ <div class="card snap"><h3>Current status</h3>
+  <div class="kv"><span>Financial year</span><b>FY{{.FY.Number}}</b></div>
+  <div class="kv"><span>Period</span><b>{{.FY.Start}} → {{.FY.End}}</b></div>
+  <div class="kv"><span>Year-end</span><b>{{.Co.YearEndLabel}}</b></div>
+  <div class="kv tot"><span>Today</span><b>{{.Today}}</b></div></div>
+</div>{{end}}
+
+
+{{define "page:company.year"}}<h1>Company · Financial year</h1>
+<div class="card snap"><h3>Current accounting period</h3>
+ <div class="kv"><span>Financial year</span><b>FY{{.FY.Number}}</b></div>
+ <div class="kv"><span>Starts</span><b>{{.FY.Start}}</b></div>
+ <div class="kv"><span>Ends</span><b>{{.FY.End}}</b></div>
+ <div class="kv tot"><span>Today</span><b>{{.Today}}</b></div>
+</div>
+<div class="row">
+ <div class="card"><h3>Set today's date</h3><form method="post" action="/company/date">
+  <label>Date<input type="date" name="date" value="{{.Today}}"></label><button>Set date</button></form>
+  <p class="muted">New transactions are dated as of today.</p></div>
+ <div class="card"><h3>Close the year</h3>
+  <form method="post" action="/company/close-year" onsubmit="return confirm('Close FY{{.FY.Number}}? This posts the closing journal, carries profit to retained earnings, locks the period and moves into the next year.')"><button>Close FY{{.FY.Number}} &amp; carry forward</button></form>
+  <p class="muted">Posts the closing journal at {{.FY.End}} (profit &amp; loss and dividends → retained earnings), locks the period, and moves the clock to the next financial year.</p>
+  {{if not .ClosedThrough.IsZero}}<p class="muted">Periods up to and including <b>{{.ClosedThrough}}</b> are closed and locked.</p>{{end}}</div>
+</div>{{end}}
+
+
+{{define "page:company.people"}}<h1>Company · Directors &amp; shares</h1>
+<div class="row">
+ <div class="card snap" style="max-width:340px"><h3>Share capital</h3>
+  <div class="kv"><span>Shares in issue</span><b>{{.TotalShares}}</b></div>
+  <div class="kv"><span>Nominal value each</span><b>{{money .Nominal}}</b></div>
+  <div class="kv tot"><span>Issued share capital</span><b>{{money .IssuedCapital}}</b></div>
+  <p class="muted">Issued capital is not distributable — dividends come out of profit, not capital.</p></div>
+ <div class="card"><h3>Issue shares</h3><form method="post" action="/company/shares/issue">
+  <label>To<input name="to" placeholder="Name of shareholder"></label>
+  <label>Number of ordinary shares<input name="shares" placeholder="100"></label>
+  {{template "bankselect" .}}{{template "datefield" .}}<button>Issue shares</button></form>
+  <p class="muted">Issuing shares for cash: debit the bank, credit share capital at nominal value.</p></div>
+</div>
+<div class="card"><h3>Register of members (shareholders)</h3>
+<table class="stmt"><tr><th>Name</th><th>Class</th><th class="num">Shares</th><th class="num">%</th><th>Since</th></tr>
+{{range .Members}}<tr><td>{{.Name}}</td><td>{{.Class}}</td><td class="num">{{.Shares}}</td><td class="num">{{pct .Shares $.TotalShares}}</td><td class="date">{{.Since}}</td></tr>{{end}}
+</table>
+<p class="muted">Shareholders appear here when you issue shares to them above — every share in the register is backed by share capital in the ledger.</p>
+<form method="post" action="/company/shares/transfer" class="inl">
+ <select name="from" style="max-width:200px">{{range .Members}}<option value="{{.Name}}">{{.Name}} ({{.Shares}})</option>{{end}}</select>
+ <span class="muted">transfers</span><input name="shares" placeholder="shares" style="max-width:100px">
+ <span class="muted">to</span><input name="to" placeholder="Recipient name" style="max-width:200px">
+ <button>Transfer</button></form></div>
+<div class="card"><h3>Register of directors &amp; officers</h3>
+<table class="stmt"><tr><th>Name</th><th>Role</th><th>Appointed</th><th>Status</th></tr>
+{{range .Officers}}<tr><td>{{.Name}}</td><td>{{.Role}}</td><td class="date">{{.Appointed}}</td><td>{{if .InOffice}}In office{{else}}Resigned {{.Resigned}}{{end}}</td></tr>{{end}}
+</table>
+<form method="post" action="/company/officers/add" class="inl">
+ <input name="name" placeholder="New officer">
+ <select name="role" style="max-width:150px"><option value="Director">Director</option><option value="Secretary">Secretary</option></select>
+ {{template "datefield" .}}<button>Appoint</button></form></div>{{end}}
+
+
+{{define "page:company.import"}}<h1>Company · Import (CSV)</h1>
+<div class="card"><h3>Import data from CSV</h3>
+<form method="post" action="/company/import/run" enctype="multipart/form-data">
+ <div class="row">
+  <label style="max-width:280px">What are you importing?<select name="kind"><option value="invoices">Sales invoices</option><option value="expenses">Expenses</option><option value="statement">Bank statement</option></select></label>
+  <div style="max-width:280px">{{template "bankselect" .}}<span class="muted">(bank statements only)</span></div>
+ </div>
+ <label>Paste CSV<textarea name="csv" rows="8" placeholder="Issue date,Client,Description,Invoice Total,Includes VAT?,Payment Date&#10;15/05/2026,Acme Ltd,Consulting,1200.00,Yes,20/05/2026"></textarea></label>
+ <label>…or choose a file<input type="file" name="file" accept=".csv,text/csv"></label>
+ <button>Import</button></form>
+<p class="muted">Data enters only by import — nothing is fetched from a bank or provider. Rows dated in a <b>closed period</b> are skipped.</p></div>
+<div class="row">
+ <div class="card"><h3>Sales invoices — columns</h3>
+  <p class="muted">One row per invoice. The total is VAT-inclusive when “Includes VAT?” is Yes (VAT extracted at 20%). A payment date marks it paid.</p>
+  <p><code>Issue date, Client, Description, Invoice Total, Includes VAT?, Payment Date</code></p></div>
+ <div class="card"><h3>Expenses — columns</h3>
+  <p class="muted">One row per cost, posted as a direct expense paid from the main account.</p>
+  <p><code>Date, Supplier, Description, Amount</code></p></div>
+</div>
+<p class="muted">These match the Crunch importer templates; columns are matched by header name, so extra or re-ordered columns are fine, and UK day-first dates are understood.</p>{{end}}
+
+
+{{define "page:sales"}}<h1>Sales · Invoices</h1>
+<div class="card"><h3>Raise an invoice</h3><form method="post" action="/sales/invoices/raise">
+ <div class="row">
+  <label style="max-width:280px">Customer<input name="customer" placeholder="Acme Ltd"></label>
+  <div style="max-width:180px">{{template "datefield" .}}</div>
+ </div>
+ <table class="lines"><tr><th>Description</th><th>Qty</th><th>Unit price (net)</th><th>VAT rate</th></tr>
+ {{range $i := seq 5}}<tr>
+  <td><input name="desc{{$i}}" placeholder="{{if eq $i 0}}Consulting — 10 hours{{end}}"></td>
+  <td class="qc"><input name="qty{{$i}}" placeholder="1"></td>
+  <td class="qc"><input name="price{{$i}}" placeholder="0.00"></td>
+  <td>{{if $.Co.VATRegistered}}<select name="vat{{$i}}">{{range $.VATRates}}<option value="{{.Code}}">{{.Label}}</option>{{end}}</select>{{else}}<span class="muted">n/a</span>{{end}}</td>
+ </tr>{{end}}
+ </table>
+ {{if .RecoverableCosts}}<div class="recharge"><h4>Recover costs from this customer</h4>
+ <p class="muted">Tick a recorded cost to add it to the invoice. It is billed at its net amount{{if .Co.VATRegistered}}, standard-rated,{{end}} posts to <i>Recharged expenses</i> income, and is reconciled against the actual expense — no guessing.</p>
+ {{range .RecoverableCosts}}<label class="chk"><input type="checkbox" name="recharge" value="{{.Ref}}"> {{.Ref}} · {{.Desc}} <b>{{money .Net}}</b> <span class="muted">({{.Date}})</span></label>{{end}}
+ </div>{{end}}
+ <button>Raise invoice</button></form></div>
+<div class="row">
+ <div class="card snap" style="max-width:340px"><h3>At a glance</h3>
+  <div class="kv"><span>Sales this year</span><b>{{money .SalesTotal}}</b></div>
+  <div class="kv"><span>Owed by customers</span><b>{{money .Debtors}}</b></div></div>
+</div>
+{{if .Invoices}}<div class="card"><h3>Invoices</h3>
+<table class="stmt"><tr><th>Date</th><th>Ref</th><th>Customer</th><th class="num">Total</th><th class="num">Paid</th><th class="num">Outstanding</th><th>Status</th></tr>
+{{range .Invoices}}<tr><td class="date">{{.Date}}</td><td class="ref"><a href="/sales/invoices/view?ref={{.Ref}}">{{.Ref}}</a></td><td>{{.Customer}}</td><td class="num">{{money .Total}}</td><td class="num">{{money .Paid}}</td><td class="num">{{money .Outstanding}}</td><td>{{.Status}}</td></tr>{{end}}
+</table><p class="muted">Click an invoice reference to open the printable itemised invoice.</p></div>{{end}}{{end}}
+
+
+{{define "page:sales.receipts"}}<h1>Sales · Receipts</h1>
+{{if .OpenInvoices}}<div class="row">
+ <div class="card"><h3>Record a receipt</h3><form method="post" action="/sales/receipts/record">
+  <label>Against invoice<select name="invoice">{{range .OpenInvoices}}<option value="{{.Ref}}">{{.Ref}} — {{.Customer}} ({{money .Outstanding}} outstanding)</option>{{end}}</select></label>
+  <label>Amount received<input name="amount" placeholder="0.00"></label>
+  {{template "bankselect" .}}{{template "datefield" .}}<button>Record receipt</button></form></div>
+ <div class="card snap"><h3>At a glance</h3>
+  <div class="kv"><span>Owed by customers</span><b>{{money .Debtors}}</b></div>
+  <div class="kv"><span>Bank</span><b>{{money .Bank}}</b></div></div>
+</div>
+{{else}}<p class="muted">No outstanding invoices. Raise one under <a href="/sales">Sales · Invoices</a> first — a receipt is money against a specific invoice.</p>{{end}}
+{{template "activity" .}}{{end}}
+
+
+{{define "page:sales.cash"}}<h1>Sales · Cash sales</h1>
+<div class="row">
+ <div class="card"><h3>Record a cash sale</h3><form method="post" action="/sales/cash/record">
+  <label>Net amount<input name="amount" placeholder="0.00"></label>
+  {{if $.Co.VATRegistered}}<label>VAT<select name="vat">{{range $.VATRates}}<option value="{{.Code}}">{{.Label}}</option>{{end}}</select></label>{{end}}
+  {{template "bankselect" .}}{{template "datefield" .}}<button>Record cash sale</button></form></div>
+ <div class="card snap"><h3>At a glance</h3>
+  <div class="kv"><span>Sales this year</span><b>{{money .SalesTotal}}</b></div>
+  <div class="kv"><span>Bank</span><b>{{money .Bank}}</b></div></div>
+</div>{{template "activity" .}}{{end}}
+
+
+{{define "page:sales.credit"}}<h1>Sales · Credit notes</h1>
+<div class="row">
+ <div class="card"><h3>Issue a credit note</h3><form method="post" action="/sales/credit-notes/record">
+  <label>Amount<input name="amount" placeholder="0.00"></label>
+  {{template "datefield" .}}<button>Issue credit note</button></form></div>
+ <div class="card snap"><h3>At a glance</h3>
+  <div class="kv"><span>Sales this year</span><b>{{money .SalesTotal}}</b></div>
+  <div class="kv"><span>Owed by customers</span><b>{{money .Debtors}}</b></div></div>
+</div>{{template "activity" .}}{{end}}
+
+
+{{define "page:expenses"}}<h1>Expenses · Bills</h1>
+<div class="row">
+ <div class="card"><h3>Record a bill</h3><form method="post" action="/expenses/bills/record">
+  <label>Supplier<input name="supplier" placeholder="Supplies Ltd"></label>
+  <label>Category<select name="account">{{range .ExpenseAccounts}}<option value="{{.Code}}">{{.Name}}</option>{{end}}</select></label>
+  <label>Net amount<input name="amount" placeholder="0.00"></label>
+  {{if $.Co.VATRegistered}}<label>VAT<select name="vat">{{range $.VATRates}}<option value="{{.Code}}">{{.Label}}</option>{{end}}</select></label>{{end}}
+  {{template "datefield" .}}<button>Record bill</button></form></div>
+ <div class="card snap"><h3>At a glance</h3>
+  <div class="kv"><span>Owed to suppliers</span><b>{{money .Creditors}}</b></div>
+  <div class="kv"><span>Expenses this year</span><b>{{money .ExpensesTotal}}</b></div></div>
+</div>
+{{if .Bills}}<div class="card"><h3>Bills</h3>
+<table class="stmt"><tr><th>Date</th><th>Ref</th><th>Supplier</th><th class="num">Total</th><th class="num">Paid</th><th class="num">Outstanding</th><th>Status</th></tr>
+{{range .Bills}}<tr><td class="date">{{.Date}}</td><td class="ref">{{.Ref}}</td><td>{{.Supplier}}</td><td class="num">{{money .Total}}</td><td class="num">{{money .Paid}}</td><td class="num">{{money .Outstanding}}</td><td>{{.Status}}</td></tr>{{end}}
+</table></div>{{end}}{{end}}
+
+
+{{define "page:expenses.payments"}}<h1>Expenses · Payments</h1>
+{{if .OpenBills}}<div class="row">
+ <div class="card"><h3>Pay a bill</h3><form method="post" action="/expenses/payments/record">
+  <label>Bill<select name="bill">{{range .OpenBills}}<option value="{{.Ref}}">{{.Ref}} — {{.Supplier}} ({{money .Outstanding}} outstanding)</option>{{end}}</select></label>
+  <label>Amount<input name="amount" placeholder="0.00"></label>
+  {{template "bankselect" .}}{{template "datefield" .}}<button>Pay bill</button></form></div>
+ <div class="card snap"><h3>At a glance</h3>
+  <div class="kv"><span>Owed to suppliers</span><b>{{money .Creditors}}</b></div>
+  <div class="kv"><span>Bank</span><b>{{money .Bank}}</b></div></div>
+</div>
+{{else}}<p class="muted">No outstanding bills. Record one under <a href="/expenses">Expenses · Bills</a> first — a payment settles a specific bill.</p>{{end}}
+{{template "activity" .}}{{end}}
+
+
+{{define "page:expenses.direct"}}<h1>Expenses · Direct expenses</h1>
+<div class="row">
+ <div class="card"><h3>Record an expense paid from the bank</h3><form method="post" action="/expenses/direct/record">
+  <label>Description<input name="desc" placeholder="Stationery"></label>
+  <label>Category<select name="account">{{range .ExpenseAccounts}}<option value="{{.Code}}">{{.Name}}</option>{{end}}</select></label>
+  <label>Net amount<input name="amount" placeholder="0.00"></label>
+  {{if $.Co.VATRegistered}}<label>VAT<select name="vat">{{range $.VATRates}}<option value="{{.Code}}">{{.Label}}</option>{{end}}</select></label>{{end}}
+  {{template "bankselect" .}}{{template "datefield" .}}<button>Record expense</button></form></div>
+ <div class="card snap"><h3>At a glance</h3>
+  <div class="kv"><span>Expenses this year</span><b>{{money .ExpensesTotal}}</b></div>
+  <div class="kv"><span>Bank</span><b>{{money .Bank}}</b></div></div>
+</div>
+{{if .Costs}}<div class="card"><h3>Recorded costs &amp; recharge status</h3>
+<table class="stmt"><tr><th>Ref</th><th>Cost</th><th>Date</th><th class="num">Net</th><th>Recharged to customer?</th></tr>
+{{range .Costs}}<tr><td class="ref">{{.Ref}}</td><td>{{.Desc}}</td><td class="date">{{.Date}}</td><td class="num">{{money .Net}}</td><td>{{if .Recharged}}<span class="badge">Recovered on {{.RechargedOn}}</span>{{else}}<span class="muted">Not recharged</span>{{end}}</td></tr>{{end}}
+</table>
+<p class="muted">Recover a cost from a customer by ticking it on a <a href="/sales">sales invoice</a>. Each recharge reconciles back to the actual expense here.</p></div>{{end}}
+{{template "activity" .}}{{end}}
+
+
+{{define "page:expenses.credit"}}<h1>Expenses · Credit notes</h1>
+<div class="row">
+ <div class="card"><h3>Record a supplier credit note</h3><form method="post" action="/expenses/credit-notes/record">
+  <label>Supplier<input name="supplier" placeholder="Acme Supplies"></label>
+  <label>Category<select name="account">{{range .ExpenseAccounts}}<option value="{{.Code}}">{{.Name}}</option>{{end}}</select></label>
+  <label>Net amount<input name="amount" placeholder="0.00"></label>
+  {{if $.Co.VATRegistered}}<label>VAT<select name="vat">{{range $.VATRates}}<option value="{{.Code}}">{{.Label}}</option>{{end}}</select></label>{{end}}
+  <label class="chk"><input type="checkbox" name="refund" value="1"> Refunded to the bank (otherwise it reduces what you owe)</label>
+  {{template "bankselect" .}}{{template "datefield" .}}<button>Record credit note</button></form>
+  <p class="muted">Goods returned or an overcharge put right: it reduces the expense and reverses the input VAT, against trade creditors or the bank.</p></div>
+ <div class="card snap"><h3>At a glance</h3>
+  <div class="kv"><span>Owed to suppliers</span><b>{{money .Creditors}}</b></div>
+  <div class="kv"><span>Expenses this year</span><b>{{money .ExpensesTotal}}</b></div></div>
+</div>{{template "activity" .}}{{end}}
+
+
+{{define "page:expenses.mileage"}}<h1>Expenses · Mileage</h1>
+<div class="row">
+ <div class="card"><h3>Claim business mileage</h3><form method="post" action="/expenses/mileage/record">
+  <label>Business miles (car)<input name="miles" placeholder="0"></label>
+  {{template "datefield" .}}<button>Add claim</button></form>
+  <p class="muted">Paid at HMRC AMAP rates (55p for the first 10,000 miles, then 25p) into your director's loan.</p></div>
+ <div class="card snap"><h3>At a glance</h3>
+  <div class="kv"><span>Director's loan</span><b>{{money .DirLoan}}</b></div></div>
+</div>{{template "activity" .}}{{end}}
+
+
+{{define "page:banking"}}<h1>Banking · Accounts</h1>
+<div class="row">
+ <div class="card"><h3>Add a bank account</h3><form method="post" action="/banking/accounts/add">
+  <label>Account name<input name="name" placeholder="Savings account"></label><button>Add account</button></form></div>
+</div>
+<div class="card"><h3>Bank accounts</h3>
+<table class="stmt"><tr><th>Account</th><th></th><th class="num">Balance</th><th></th></tr>
+{{range .BankRows}}<tr><td>{{.Name}}</td><td>{{if .Main}}<span class="badge">Main account</span>{{end}}</td><td class="num">{{money .Balance}}</td><td>{{if not .Main}}<form method="post" action="/banking/accounts/main"><input type="hidden" name="bank" value="{{.Code}}"><button class="link">Make main</button></form>{{end}}</td></tr>{{end}}
+<tr><td>Cash</td><td></td><td class="num">{{money .Cash}}</td><td></td></tr>
+</table>
+<p class="muted">The <b>main account</b> is the default for salaries, dividends, corporation tax and other cash movements — and the pre-selected account in every form.</p></div>
+{{template "activity" .}}{{end}}
+
+
+{{define "page:banking.transfers"}}<h1>Banking · Transfers</h1>
+<div class="row">
+ <div class="card"><h3>Transfer between accounts</h3><form method="post" action="/banking/transfers/record">
+  <label>From<select name="from">{{range .Banks}}<option value="{{.Code}}">{{.Name}}</option>{{end}}<option value="1210">Cash</option></select></label>
+  <label>To<select name="to">{{range .Banks}}<option value="{{.Code}}">{{.Name}}</option>{{end}}<option value="1210">Cash</option></select></label>
+  <label>Amount<input name="amount" placeholder="0.00"></label>
+  {{template "datefield" .}}<button>Transfer</button></form></div>
+ <div class="card snap"><h3>At a glance</h3>
+  <div class="kv"><span>Bank</span><b>{{money .Bank}}</b></div>
+  <div class="kv"><span>Cash</span><b>{{money .Cash}}</b></div></div>
+</div>{{template "activity" .}}{{end}}
+
+
+{{define "page:banking.interest"}}<h1>Banking · Interest &amp; charges</h1>
+<div class="row">
+ <div class="card"><h3>Interest received</h3><form method="post" action="/banking/interest/record">
+  <label>Amount<input name="amount" placeholder="0.00"></label>
+  {{template "bankselect" .}}{{template "datefield" .}}<button>Add interest</button></form></div>
+ <div class="card"><h3>Bank charge</h3><form method="post" action="/banking/charges/record">
+  <label>Amount<input name="amount" placeholder="0.00"></label>
+  {{template "bankselect" .}}{{template "datefield" .}}<button>Add charge</button></form></div>
+</div>{{template "activity" .}}{{end}}
+
+
+{{define "page:banking.reconcile"}}<h1>Banking · Reconcile</h1>
+{{if .Recs}}{{range .Recs}}<div class="card">
+ <h3>{{.BankName}}</h3>
+ <div class="row">
+  <div class="snap" style="min-width:280px">
+   <div class="kv"><span>Balance in your books</span><b>{{money .Ledger}}</b></div>
+   <div class="kv"><span>Statement closing balance</span><b>{{money .StatementClose}}</b></div>
+   <div class="kv tot"><span>Difference</span><b>{{money .Difference}}</b></div>
+   <div class="kv"><span>{{if .Agrees}}✓ Reconciled — the statement agrees with your books{{else}}Not yet reconciled — investigate the difference{{end}}</span><b></b></div>
+  </div>
+ </div>
+ <table class="stmt"><tr><th>Date</th><th>Description</th><th class="num">Amount</th><th>Ticked</th></tr>
+ {{range .Lines}}<tr><td class="date">{{.Date}}</td><td>{{.Desc}}</td><td class="num">{{money .Amount}}</td>
+   <td><form method="post" action="/banking/reconcile/toggle" style="display:inline"><input type="hidden" name="i" value="{{.Index}}"><button class="link">{{if .Reconciled}}✓ done{{else}}tick{{end}}</button></form></td></tr>{{end}}
+ </table>
+ <p class="muted">Ticked so far: {{money .ReconciledTotal}}. Import a statement under <a href="/company/import">Company · Import</a> (choose “Bank statement” and the account).</p>
+</div>{{end}}{{else}}<p class="muted">No bank statements imported yet. Go to <a href="/company/import">Company · Import (CSV)</a>, choose <b>Bank statement</b> and the account, and paste columns like <code>Date, Description, Paid In, Paid Out, Balance</code>. Then reconcile the statement against your books here.</p>{{end}}{{end}}
+
+
+{{define "page:pay-yourself"}}<h1>Pay Yourself · Salary</h1>
+<div class="row">
+ <div class="card"><h3>Run a salary</h3><form method="post" action="/pay-yourself/salary/run">
+  <label>Annual gross salary<input name="amount" placeholder="12570.00"></label>
+  <label class="chk"><input type="checkbox" name="pension" value="1"> Enrol in workplace pension (auto-enrolment)</label>
+  {{template "datefield" .}}<button>Run payroll</button></form>
+  <p class="muted">Computes PAYE and employee/employer NI at 2025/26 rates. Pension adds 5% employee + 3% employer on qualifying earnings (£6,240–£50,270).</p></div>
+ {{template "payslip" .}}
+</div>{{template "activity" .}}{{end}}
+
+
+{{define "page:pay-yourself.dividends"}}<h1>Pay Yourself · Dividends</h1>
+<div class="row">
+ <div class="card"><h3>Declare a dividend</h3><form method="post" action="/pay-yourself/dividends/declare">
+  <label>Amount<input name="amount" placeholder="0.00"></label>
+  {{template "datefield" .}}<button>Declare</button></form>
+  <p class="muted">Blocked if it exceeds your distributable reserves.</p></div>
+ <div class="card"><h3>Pay a declared dividend</h3><form method="post" action="/pay-yourself/dividends/pay">
+  <label>Amount<input name="amount" placeholder="0.00"></label>
+  {{template "datefield" .}}<button>Pay</button></form></div>
+ <div class="card snap"><h3>At a glance</h3>
+  <div class="kv"><span>Distributable reserves</span><b>{{money .Reserves}}</b></div>
+  <div class="kv"><span>Shares in issue</span><b>{{.TotalShares}}</b></div>
+  <div class="kv"><span>Director's loan</span><b>{{money .DirLoan}}</b></div></div>
+</div>
+{{with .LastDividend}}<div class="card"><h3>Dividend voucher — {{.Ref}}</h3>
+<p class="muted">{{money .Total}} declared on {{.Date}} · {{.PerShare}}, allocated by shareholding:</p>
+<table class="stmt"><tr><th>Shareholder</th><th class="num">Shares</th><th class="num">Dividend</th></tr>
+{{range .Awards}}<tr><td>{{.Member.Name}}</td><td class="num">{{.Member.Shares}}</td><td class="num">{{money .Amount}}</td></tr>{{end}}
+<tr class="tot"><td>Total</td><td></td><td class="num">{{money .Total}}</td></tr>
+</table></div>{{end}}
+{{template "activity" .}}{{end}}
+
+
+{{define "page:pay-yourself.loan"}}<h1>Pay Yourself · Director's loan</h1>
+<div class="row">
+ <div class="card"><h3>Introduce funds</h3><form method="post" action="/pay-yourself/loan/in">
+  <label>Amount<input name="amount" placeholder="0.00"></label>
+  {{template "datefield" .}}<button>Money in</button></form></div>
+ <div class="card"><h3>Draw funds</h3><form method="post" action="/pay-yourself/loan/out">
+  <label>Amount<input name="amount" placeholder="0.00"></label>
+  {{template "datefield" .}}<button>Money out</button></form></div>
+ <div class="card snap"><h3>At a glance</h3>
+  <div class="kv"><span>Director's loan balance</span><b>{{money .DirLoan}}</b></div>
+  <div class="kv"><span>Bank</span><b>{{money .Bank}}</b></div></div>
+</div>{{template "activity" .}}{{end}}
+
+
+{{define "page:company-tax"}}<h1>Company Tax · Corporation tax</h1>
+<div class="row">
+ {{with .CT}}<div class="card snap"><h3>Estimated tax — {{.Band}}</h3>
+  <div class="kv"><span>Profit before tax</span><b>{{money $.PBT}}</b></div>
+  <div class="kv"><span>Add back depreciation</span><b>{{money $.DepAddBack}}</b></div>
+  <div class="kv"><span>Less capital allowances</span><b>{{money $.CapAllow}}</b></div>
+  <div class="kv"><span>Taxable profit</span><b>{{money .TaxableProfit}}</b></div>
+  {{if pos .MarginalRelief}}<div class="kv"><span>Marginal relief</span><b>{{money .MarginalRelief}}</b></div>{{end}}
+  <div class="kv tot"><span>Corporation tax charge</span><b>{{money .Charge}}</b></div></div>{{end}}
+ <div class="card"><h3>Provide for it</h3>
+  <form method="post" action="/company-tax/provide">{{template "datefield" .}}<button>Post provision</button></form>
+  <div class="kv" style="margin-top:10px"><span>Provided so far</span><b>{{money .CorpTaxDue}}</b></div></div>
+ <div class="card"><h3>Pay HMRC</h3><form method="post" action="/company-tax/pay">
+  <label>Amount<input name="amount" placeholder="0.00"></label>
+  {{template "datefield" .}}<button>Pay tax</button></form></div>
+</div>
+<div class="card"><h3>VAT</h3>
+ <div class="kv"><span>VAT owed to HMRC</span><b>{{money .VATOwed}}</b></div>
+ <p class="muted">Output VAT charged on sales, less input VAT reclaimed on purchases.{{if .Co.VATRegistered}} See the <a href="/company-tax/vat">VAT return</a> for the nine-box breakdown.{{else}} This company is not VAT registered.{{end}}</p></div>
+{{template "activity" .}}{{end}}
+
+
+{{define "page:company-tax.vat"}}<h1>Company Tax · VAT return <span class="muted">({{.FY}})</span></h1>
+{{if .VATReturn}}{{with .VATReturn}}<div class="card"><h3>VAT return — {{.From}} to {{.To}}</h3>
+<table class="stmt">
+ <tr><td>Box 1 — VAT due on sales and other outputs</td><td class="num">{{money .Box1}}</td></tr>
+ <tr><td>Box 2 — VAT due on acquisitions from EU member states</td><td class="num">{{money .Box2}}</td></tr>
+ <tr class="tot"><td>Box 3 — total VAT due</td><td class="num">{{money .Box3}}</td></tr>
+ <tr><td>Box 4 — VAT reclaimed on purchases and other inputs</td><td class="num">{{money .Box4}}</td></tr>
+ <tr class="tot"><td>Box 5 — net VAT {{if .Box5Reclaim}}to reclaim from HMRC{{else}}to pay to HMRC{{end}}</td><td class="num">{{money .Box5}}</td></tr>
+ <tr><td>Box 6 — total value of sales, excluding VAT</td><td class="num">{{money .Box6}}</td></tr>
+ <tr><td>Box 7 — total value of purchases, excluding VAT</td><td class="num">{{money .Box7}}</td></tr>
+ <tr><td>Box 8 — goods supplied to EU member states</td><td class="num">{{money .Box8}}</td></tr>
+ <tr><td>Box 9 — goods acquired from EU member states</td><td class="num">{{money .Box9}}</td></tr>
+</table>
+<p class="muted">Boxes 1, 3, 4 and 5 come straight from your VAT control account, so the net position is exact. Box 7 excludes wages, pension, depreciation and corporation tax (not purchases). {{if .Box5Reclaim}}You are in a repayment position.{{end}} Generated for the current financial year — this return is <b>not submitted to HMRC</b>.</p></div>{{end}}
+{{else}}<p class="muted">This company is not VAT registered, so there is no VAT return. Turn on <b>VAT registered</b> under <a href="/company">Company · Details</a> to charge VAT and produce a return.</p>{{end}}{{template "activity" .}}{{end}}
+
+
+{{define "page:accounting"}}<h1>Accounting · Trial balance</h1>
+<div class="card"><table class="stmt">
+<tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th></tr>
+{{range .TB.Lines}}<tr><td>{{.Account.Code}} · {{.Account.Name}}</td><td class="num">{{if pos .Debit}}{{money .Debit}}{{end}}</td><td class="num">{{if pos .Credit}}{{money .Credit}}{{end}}</td></tr>{{end}}
+<tr class="tot"><td>Totals</td><td class="num">{{money .TB.TotalDebit}}</td><td class="num">{{money .TB.TotalCredit}}</td></tr>
+</table></div>{{end}}
+
+
+{{define "page:accounting.pl"}}<h1>Accounting · Profit &amp; Loss <span class="muted">({{.FY}})</span></h1>
+<div class="card"><table class="stmt">
+<tr class="head"><th colspan="2">Income</th></tr>
+{{range .PL.Income}}<tr><td>{{.Name}}</td><td class="num">{{money .Amount}}</td></tr>{{end}}
+<tr class="tot"><td>Total income</td><td class="num">{{money .PL.TotalIncome}}</td></tr>
+<tr class="head"><th colspan="2">Expenses</th></tr>
+{{range .PL.Expenses}}<tr><td>{{.Name}}</td><td class="num">{{money .Amount}}</td></tr>{{end}}
+<tr class="tot"><td>Total expenses</td><td class="num">{{money .PL.TotalExpenses}}</td></tr>
+<tr class="tot"><td>Profit for the period</td><td class="num">{{money .PL.Profit}}</td></tr>
+</table></div>{{end}}
+
+
+{{define "page:accounting.bs"}}<h1>Accounting · Balance sheet <span class="muted">as at {{.FY.End}}</span></h1>
+<div class="card"><table class="stmt">
+<tr class="head"><th colspan="2">Assets</th></tr>
+{{range .BS.Assets}}<tr><td>{{.Name}}</td><td class="num">{{money .Amount}}</td></tr>{{end}}
+<tr class="tot"><td>Total assets</td><td class="num">{{money .BS.TotalAssets}}</td></tr>
+<tr class="head"><th colspan="2">Liabilities</th></tr>
+{{range .BS.Liabilities}}<tr><td>{{.Name}}</td><td class="num">{{money .Amount}}</td></tr>{{end}}
+<tr class="tot"><td>Total liabilities</td><td class="num">{{money .BS.TotalLiabilities}}</td></tr>
+<tr class="head"><th colspan="2">Equity</th></tr>
+{{range .BS.Equity}}<tr><td>{{.Name}}</td><td class="num">{{money .Amount}}</td></tr>{{end}}
+<tr class="tot"><td>Total equity</td><td class="num">{{money .BS.TotalEquity}}</td></tr>
+</table></div>{{end}}
+
+
+{{define "page:accounting.chart"}}<h1>Accounting · Chart of accounts</h1>
+<div class="card"><table class="stmt">
+<tr><th>Code</th><th>Name</th><th>Type</th></tr>
+{{range .Accounts}}<tr><td>{{.Code}}</td><td>{{.Name}}</td><td>{{.Type}}</td></tr>{{end}}
+</table></div>{{end}}
+
+
+{{define "page:accounting.journals"}}<h1>Accounting · Journals</h1>
+<p class="muted">Every journal, balanced by construction — expand one to see what each posting does and the principle behind it.</p>
+{{if .AllJournals}}{{range .AllJournals}}<div class="card jnl">
+ <div class="jnl-h"><span class="date">{{.Date}}</span> <b>{{.Narrative}}</b>{{if .Ref}} <span class="ref">{{.Ref}}</span>{{end}}
+  {{if .Reversible}}<form method="post" action="/accounting/reverse" class="rev" onsubmit="return confirm('Post a reversing entry for this journal?')"><input type="hidden" name="i" value="{{.Index}}"><button class="link">Reverse</button></form>{{end}}</div>
+ <div class="post">{{range .Postings}}<span class="leg" title="{{.Effect}}">{{.Side}} {{.Account}} {{.Amount}}</span>{{end}}</div>
+ <details class="explain"><summary>Explain in plain language</summary>
+  <ul class="fx">{{range .Postings}}{{if .Effect}}<li><b>{{.Side}} {{.Account}}</b> — {{.Effect}}</li>{{end}}{{end}}</ul>
+  {{if .Principle}}<p class="principle">{{.Principle}}</p>{{end}}
+ </details>
+</div>{{end}}{{else}}<p class="muted">No journals posted yet.</p>{{end}}{{end}}
+
+
+{{define "page:accounting.assets"}}<h1>Accounting · Fixed assets</h1>
+<div class="row">
+ <div class="card"><h3>Buy an asset</h3><form method="post" action="/accounting/fixed-assets/acquire">
+  <label>Name<input name="name" placeholder="Laptop"></label>
+  <label>Cost<input name="amount" placeholder="0.00"></label>
+  <label>Method<select name="method"><option value="straight">Straight-line</option><option value="reducing">Reducing balance</option></select></label>
+  <label>Useful life in years (straight-line)<input name="life" placeholder="4"></label>
+  <label>Rate % (reducing balance)<input name="rate" placeholder="25"></label>
+  {{template "datefield" .}}<button>Buy asset</button></form></div>
+ <div class="card"><h3>Depreciation</h3>
+  <form method="post" action="/accounting/fixed-assets/depreciate"><button>Run one year's depreciation</button></form>
+  <p class="muted">Computes each asset's charge for the year from its cost, method and life — no figures typed in.</p></div>
+</div>
+{{if .Assets}}<div class="card"><h3>Asset register</h3>
+<table class="stmt"><tr><th>Ref</th><th>Name</th><th>Method</th><th class="num">Cost</th><th class="num">Depreciation</th><th class="num">Net book value</th></tr>
+{{range .Assets}}<tr><td class="ref">{{.Ref}}</td><td>{{.Name}}</td><td>{{.Method}}</td><td class="num">{{money .Cost}}</td><td class="num">{{money .Accumulated}}</td><td class="num">{{money .NBV}}</td></tr>{{end}}
+</table></div>{{end}}
+<div class="card"><h3>Post a manual journal</h3><form method="post" action="/accounting/journals/post" class="wide">
+ <label>Debit account<select name="debit">{{range .Accounts}}<option value="{{.Code}}">{{.Code}} · {{.Name}}</option>{{end}}</select></label>
+ <label>Credit account<select name="credit">{{range .Accounts}}<option value="{{.Code}}">{{.Code}} · {{.Name}}</option>{{end}}</select></label>
+ <label>Amount<input name="amount" placeholder="0.00"></label>
+ <label>Narrative<input name="narrative" placeholder="description"></label>
+ <label>Date<input type="date" name="date" value="{{.Today}}"></label>
+ <button>Post journal</button></form></div>
+{{template "activity" .}}{{end}}
+
+
+{{define "page:accounting.adjust"}}<h1>Accounting · Adjustments</h1>
+<p class="muted">Make profit fall in the right period regardless of when cash moves. Reverse an adjustment next period from the <a href="/accounting/journals">Journals</a> page when the real invoice arrives or the benefit is used.</p>
+<div class="row">
+ <div class="card"><h3>Accrual — a cost not yet billed</h3><form method="post" action="/accounting/adjustments/accrue">
+  <label>What is it?<input name="note" placeholder="March electricity"></label>
+  <label>Category<select name="account">{{range .ExpenseAccounts}}<option value="{{.Code}}">{{.Name}}</option>{{end}}</select></label>
+  <label>Amount<input name="amount" placeholder="0.00"></label>
+  {{template "datefield" .}}<button>Post accrual</button></form>
+  <p class="muted">Debit the expense now, credit accruals (a liability) for what you'll be invoiced.</p></div>
+ <div class="card"><h3>Prepayment — a cost paid in advance</h3><form method="post" action="/accounting/adjustments/prepay">
+  <label>What is it?<input name="note" placeholder="Insurance for the year"></label>
+  <label>Category<select name="account">{{range .ExpenseAccounts}}<option value="{{.Code}}">{{.Name}}</option>{{end}}</select></label>
+  <label>Amount<input name="amount" placeholder="0.00"></label>
+  {{template "datefield" .}}<button>Post prepayment</button></form>
+  <p class="muted">Debit prepayments (an asset) for the future benefit, credit the expense to take it out of this period.</p></div>
+ <div class="card snap"><h3>At a glance</h3>
+  <div class="kv"><span>Accruals (owed)</span><b>{{money .AccrualsBal}}</b></div>
+  <div class="kv"><span>Prepayments (asset)</span><b>{{money .PrepaidBal}}</b></div></div>
+</div>{{template "activity" .}}{{end}}
+
+
+{{define "page:accounting.accounts"}}<h1>Accounting · Year-end accounts <span class="muted">({{.FY}})</span></h1>
+{{with .Acc}}
+<div class="row">
+ <div class="card snap" style="max-width:360px"><h3>Balance sheet at {{.FY.End}}</h3>
+  <div class="kv"><span>Fixed assets</span><b>{{money .FixedAssets}}</b></div>
+  <div class="kv"><span>Current assets</span><b>{{money .CurrentAssets}}</b></div>
+  <div class="kv"><span>Creditors &lt; 1 year</span><b>({{money .CreditorsWithin1Yr}})</b></div>
+  <div class="kv"><span>Net assets</span><b>{{money .NetAssets}}</b></div>
+  <div class="kv tot"><span>Capital &amp; reserves</span><b>{{money .CapitalAndReserves}}</b></div>
+  <div class="kv"><span>Balances?</span><b>{{if .Balances}}✓ yes{{else}}✗ no{{end}}</b></div></div>
+ <div class="card snap" style="max-width:360px"><h3>Profit &amp; loss for {{.FY.Number}}</h3>
+  <div class="kv"><span>Turnover</span><b>{{money .Turnover}}</b></div>
+  <div class="kv"><span>Gross profit</span><b>{{money .GrossProfit}}</b></div>
+  <div class="kv"><span>Administrative expenses</span><b>({{money .AdminExpenses}})</b></div>
+  <div class="kv"><span>Profit before tax</span><b>{{money .ProfitBeforeTax}}</b></div>
+  <div class="kv"><span>Tax</span><b>({{money .Tax}})</b></div>
+  <div class="kv tot"><span>Profit for the year</span><b>{{money .ProfitForYear}}</b></div></div>
+</div>
+<div class="card"><h3>Statutory micro-entity accounts (FRS 105)</h3>
+ <p>The full accounts are generated as an <b>inline-XBRL (iXBRL)</b> document — the exact format filed at Companies House and attached to a CT600. It reads as the accounts in your browser and carries machine-readable XBRL facts inline.</p>
+ <p><a class="btn" href="/accounting/accounts/ixbrl" target="_blank">View accounts (iXBRL)</a>
+    <a class="btn ghost" href="/accounting/accounts/ixbrl?download=1">Download iXBRL file</a></p>
+ <p class="muted">Signed on behalf of the board by <b>{{.SignedBy}}</b>. In keeping with the game, the document is generated perfectly but <b>never filed or transmitted</b> — no Companies House or HMRC submission.</p>
+</div>
+{{else}}<p class="muted">Accounts could not be built for this period.</p>{{end}}{{end}}
+
+
+{{define "invoicedoc"}}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Invoice {{.Doc.Ref}} — {{.Co.Name}}</title>
+<style>
+ *{box-sizing:border-box}
+ body{margin:0;background:#eef1f6;font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;color:#1b2733}
+ .sheet{max-width:720px;margin:24px auto;background:#fff;border:1px solid #dbe3ec;border-radius:10px;padding:34px 40px;box-shadow:0 1px 3px rgba(20,40,80,.08)}
+ header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #243b53;padding-bottom:16px;margin-bottom:18px}
+ header h1{font-size:20px;margin:0 0 4px;color:#243b53}
+ header p{margin:0;font-size:12px;color:#627d98;line-height:1.5}
+ .meta{text-align:right}
+ .meta h2{font-size:15px;letter-spacing:2px;color:#829ab1;margin:0 0 6px}
+ .meta p{font-size:13px;color:#334e68}
+ .to{font-size:14px;margin-bottom:18px}
+ .to span{color:#829ab1}
+ table.doc{border-collapse:collapse;width:100%;font-size:13px;margin-bottom:16px}
+ table.doc th{text-align:left;color:#627d98;font-weight:600;border-bottom:1px solid #cbd5e0;padding:7px 8px}
+ table.doc td{padding:7px 8px;border-bottom:1px solid #eef2f7;vertical-align:top}
+ table.doc .num{text-align:right;font-variant-numeric:tabular-nums}
+ .rc{display:inline-block;background:#eef2f8;color:#486581;border-radius:4px;padding:0 6px;font-size:11px;margin-left:4px}
+ .tot{margin-left:auto;width:280px;font-size:13px}
+ .tot div{display:flex;justify-content:space-between;padding:4px 8px}
+ .tot span{color:#627d98}
+ .tot b{font-variant-numeric:tabular-nums}
+ .tot .g{border-top:2px solid #243b53;margin-top:4px;padding-top:7px;font-size:15px}
+ .tot .out b{color:#b34700}
+ .foot{margin-top:26px;font-size:11px;color:#9fb0c3;border-top:1px solid #eef2f7;padding-top:12px}
+ .actions{max-width:720px;margin:0 auto 30px;padding:0 40px;font-size:13px}
+ .actions a{color:#2f66d0;text-decoration:none;margin-right:14px}
+ button{padding:7px 13px;border:0;border-radius:6px;background:#2f66d0;color:#fff;font-size:13px;font-weight:600;cursor:pointer}
+ @media print{body{background:#fff}.sheet{border:0;box-shadow:none;margin:0;max-width:100%}.actions{display:none}}
+</style></head>
+<body>
+<div class="sheet">
+ <header>
+  <div><h1>{{.Co.Name}}</h1><p>{{.Co.RegisteredOffice}}<br>Company no. {{.Co.Number}}{{if .Co.VATRegistered}}<br>VAT no. {{.Co.VATNumber}}{{end}}</p></div>
+  <div class="meta"><h2>INVOICE</h2><p><b>{{.Doc.Ref}}</b><br>Date: {{.Doc.Date}}</p></div>
+ </header>
+ <div class="to"><span>Billed to</span><br><b>{{.Doc.Customer}}</b></div>
+ <table class="doc"><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit price</th><th class="num">VAT</th><th class="num">Net</th></tr>
+ {{range .Doc.Lines}}<tr>
+  <td>{{.Description}}{{if .Recharge}}<span class="rc">recharged cost</span>{{end}}</td>
+  <td class="num">{{.Qty}}</td>
+  <td class="num">{{money .UnitPrice}}</td>
+  <td class="num">{{.VATPercent}}</td>
+  <td class="num">{{money .Net}}</td>
+ </tr>{{end}}
+ </table>
+ <div class="tot">
+  <div><span>Net</span><b>{{money .Doc.Net}}</b></div>
+  <div><span>VAT</span><b>{{money .Doc.VAT}}</b></div>
+  <div class="g"><span>Total due</span><b>{{money .Doc.Gross}}</b></div>
+  {{with .Invoice}}<div><span>Received</span><b>{{money .Paid}}</b></div>
+  <div class="out"><span>Outstanding</span><b>{{money .Outstanding}}</b></div>{{end}}
+ </div>
+ <p class="foot">Payment due to {{.Co.Name}}. This is a computer-generated invoice produced by a virtual accounting game — not a demand for payment from a real business.</p>
+</div>
+<div class="actions"><a href="/sales">← Back to Sales</a><button onclick="window.print()">Print / Save PDF</button></div>
+</body></html>{{end}}
