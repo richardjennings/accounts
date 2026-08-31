@@ -63,6 +63,10 @@ func TestCrunchImportLocal(t *testing.T) {
 		t.Logf("%-28s %s", ac.Name, a.bal(code))
 	}
 	for _, bk := range a.banks {
+		if bk.Currency != "" {
+			t.Logf("bank %-24s %s holding %s", bk.Name, a.bal(bk.Code), a.fxBal(bk.Code))
+			continue
+		}
 		t.Logf("bank %-24s %s", bk.Name, a.bal(bk.Code))
 	}
 	t.Logf("today: %s; VAT registered: %v", a.today, a.co.VATRegistered)

@@ -79,7 +79,7 @@ func TestImportOverHTTP(t *testing.T) {
 		return string(b)
 	}
 	page := get("/company/import")
-	for _, want := range []string{"Last import — Crunch", "<td>Sales invoices</td><td class=\"num\">3</td>", "<td>Receipts</td><td class=\"num\">1</td>", "<td>Bills</td><td class=\"num\">1</td>", "<td>Transfers</td><td class=\"num\">1</td>", "Added bank account: USD Wise"} {
+	for _, want := range []string{"Last import — Crunch", "<td>Sales invoices</td><td class=\"num\">3</td>", "<td>Receipts</td><td class=\"num\">1</td>", "<td>Bills</td><td class=\"num\">1</td>", "<td>Currency conversions</td><td class=\"num\">1</td>", "Added bank account: USD Wise"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("import page lacks %q", want)
 		}
@@ -92,6 +92,25 @@ func TestImportOverHTTP(t *testing.T) {
 	i1, i2, i3 := strings.Index(sales, `ref=INV-1"`), strings.Index(sales, `ref=INV-2"`), strings.Index(sales, `ref=INV-3"`)
 	if i1 < 0 || i2 < i1 || i3 < i2 {
 		t.Errorf("invoice references or order wrong: %d %d %d", i1, i2, i3)
+	}
+
+	// USD Wise was created as a USD account; the $1000 receipt filled it and the
+	// 740 transfer to Tide converted out at the average carried rate:
+	// carrying 750 → sold $1000×740/750 = $986.67, leaving $13.33 carried at £10.
+	var usd bankAcct
+	for _, bk := range a.banks {
+		if bk.Name == "USD Wise" {
+			usd = bk
+		}
+	}
+	if usd.Currency != "USD" {
+		t.Fatalf("USD Wise: %+v", usd)
+	}
+	if got := a.fxBal(usd.Code).String(); got != "USD 13.33" {
+		t.Errorf("USD balance = %s", got)
+	}
+	if got := a.bal(usd.Code).String(); got != "GBP 10.00" {
+		t.Errorf("carrying = %s", got)
 	}
 
 	// Persisted: a fresh app restores it all.
