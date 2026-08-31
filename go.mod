@@ -5,8 +5,11 @@ go 1.25
 require (
 	github.com/richardjennings/decimal v0.0.0
 	github.com/richardjennings/ixbrl v0.0.0
+	github.com/richardjennings/xls v0.0.0
 )
 
 replace github.com/richardjennings/decimal => ../decimal
 
 replace github.com/richardjennings/ixbrl => ../ixbrl
+
+replace github.com/richardjennings/xls => ../xls
