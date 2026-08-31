@@ -29,6 +29,7 @@ import (
 	"github.com/richardjennings/accounts/explain"
 	"github.com/richardjennings/accounts/fixedassets"
 	"github.com/richardjennings/accounts/frs105"
+	"github.com/richardjennings/accounts/importer"
 	"github.com/richardjennings/accounts/ledger"
 	"github.com/richardjennings/accounts/mileage"
 	"github.com/richardjennings/accounts/money"
@@ -91,6 +92,7 @@ var nav = []navSection{
 		{"banking", "Accounts", "/banking"},
 		{"banking.transfers", "Transfers", "/banking/transfers"},
 		{"banking.interest", "Interest & charges", "/banking/interest"},
+		{"banking.statements", "Import statement", "/banking/statements"},
 		{"banking.reconcile", "Reconcile", "/banking/reconcile"},
 	}},
 	{ID: "pay-yourself", Label: "Pay Yourself", Href: "/pay-yourself", Items: []navItem{
@@ -188,30 +190,32 @@ type stmtLine struct {
 }
 
 type app struct {
-	mu            sync.Mutex
-	co            company.Company
-	today         ledger.Date
-	book          *ledger.Book
-	sl            *salesledger.Ledger
-	purch         *purchaseledger.Ledger
-	assets        []*assetHolding
-	employees     []*employee
-	banks         []bankAcct
-	mainBank      string // code of the primary bank account; the default for cash flows
-	reg           register.Register
-	invoiceDocs   map[string]*invoiceDoc
-	invoiceOrder  []string
-	costs         []*costRecord
-	stmtLines     []*stmtLine
-	entries       []entry
-	seq           int
-	flash         string
-	lastPayroll   *payroll.Result
-	lastDividend  *dividendRun
-	closedThrough ledger.Date // periods on/before this date are closed (locked)
-	lastImport    *importReport
-	dataPath      string // save file; empty = in-memory only
-	tmpl          *template.Template
+	mu             sync.Mutex
+	co             company.Company
+	today          ledger.Date
+	book           *ledger.Book
+	sl             *salesledger.Ledger
+	purch          *purchaseledger.Ledger
+	assets         []*assetHolding
+	employees      []*employee
+	banks          []bankAcct
+	mainBank       string // code of the primary bank account; the default for cash flows
+	reg            register.Register
+	invoiceDocs    map[string]*invoiceDoc
+	invoiceOrder   []string
+	costs          []*costRecord
+	stmtLines      []*stmtLine
+	entries        []entry
+	seq            int
+	flash          string
+	lastPayroll    *payroll.Result
+	lastDividend   *dividendRun
+	closedThrough  ledger.Date // periods on/before this date are closed (locked)
+	lastImport     *importReport
+	pendingStmt    *pendingStatement
+	statementSpecs map[string]importer.StatementSpec // saved column mappings by bank code
+	dataPath       string                            // save file; empty = in-memory only
+	tmpl           *template.Template
 }
 
 // inClosedPeriod reports whether a date falls in a locked (closed) accounting period
@@ -248,6 +252,7 @@ func newApp(dataPath string) (*app, error) {
 	}
 	tmpl, err := template.New("app").Funcs(template.FuncMap{
 		"money": fmtMoney,
+		"dict2": func(cols []string, sel string) map[string]any { return map[string]any{"Cols": cols, "Sel": sel} },
 		"pos":   func(m money.Money) bool { return m.IsPositive() },
 		"seq": func(n int) []int {
 			s := make([]int, n)
@@ -815,6 +820,7 @@ type pageData struct {
 	Costs            []*costRecord // all recorded costs, for recharge reconciliation
 	RecoverableCosts []*costRecord // costs not yet recharged, offered on the invoice form
 	Recs             []reconView   // bank reconciliations
+	StmtUpload       *stmtUploadView
 
 	Activity                  []journalView
 	Payroll                   *payroll.Result
@@ -897,6 +903,9 @@ func (a *app) render(w http.ResponseWriter, page string) {
 	}
 	if page == "banking.reconcile" {
 		d.Recs = a.reconciliations()
+	}
+	if page == "banking.statements" {
+		d.StmtUpload = a.stmtUploadView()
 	}
 	if page == "company-tax.vat" && a.co.VATRegistered {
 		vr := a.vatReturn()
@@ -1687,6 +1696,7 @@ func (a *app) routes() *http.ServeMux {
 		a.mu.Unlock()
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 	})
+	a.statementRoutes(mux)
 	return mux
 }
 
