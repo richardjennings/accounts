@@ -647,7 +647,8 @@
   <div class="kv tot"><span>Corporation tax charge</span><b>{{money .Charge}}</b></div></div>{{end}}
  <div class="card"><h3>Provide for it</h3>
   <form method="post" action="/company-tax/provide">{{template "datefield" .}}<button>Post provision</button></form>
-  <div class="kv" style="margin-top:10px"><span>Provided so far</span><b>{{money .CorpTaxDue}}</b></div></div>
+  <div class="kv" style="margin-top:10px"><span>Provided this year</span><b>{{money .CTProvided}}</b></div>
+  <div class="kv"><span>Owed to HMRC</span><b>{{money .CorpTaxDue}}</b></div></div>
  <div class="card"><h3>Pay HMRC</h3><form method="post" action="/company-tax/pay">
   <label>Amount<input name="amount" placeholder="0.00"></label>
   {{template "datefield" .}}<button>Pay tax</button></form></div>

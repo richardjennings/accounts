@@ -611,10 +611,19 @@ func (a *app) whole(r *http.Request, field string) (int, error) {
 	return n, nil
 }
 
+// fyMovement returns an account's net movement over the current financial year.
+// The tax estimate must use it, not the all-time balance: a company with earlier
+// years on the books carries their tax charge and depreciation in the balance.
+func (a *app) fyMovement(code string) money.Money {
+	fy := a.fy()
+	v, _ := a.book.MovementBetween(code, fy.Start, fy.End)
+	return v
+}
+
 func (a *app) profitBeforeTax() money.Money {
 	fy := a.fy()
 	pl, _ := report.NewProfitAndLoss(a.book, fy.Start, fy.End)
-	pbt, _ := pl.Profit.Add(a.bal(chart.CorpTaxCharge))
+	pbt, _ := pl.Profit.Add(a.fyMovement(chart.CorpTaxCharge))
 	return pbt
 }
 
@@ -634,7 +643,7 @@ func (a *app) capitalAllowances() money.Money {
 // taxableProfit adjusts accounting profit for tax: add back depreciation
 // (disallowable), deduct capital allowances.
 func (a *app) taxableProfit() money.Money {
-	taxable, _ := corporationtax.AdjustProfit(a.profitBeforeTax(), a.bal(chart.Depreciation), a.capitalAllowances())
+	taxable, _ := corporationtax.AdjustProfit(a.profitBeforeTax(), a.fyMovement(chart.Depreciation), a.capitalAllowances())
 	return taxable
 }
 
@@ -837,6 +846,7 @@ type pageData struct {
 	Payroll                   *payroll.Result
 	CT                        *corporationtax.Result
 	PBT, DepAddBack, CapAllow money.Money
+	CTProvided                money.Money // tax charge posted so far this financial year
 	Acc                       *frs105.Accounts
 	VATReturn                 *vatreturn.Return
 }
@@ -914,7 +924,8 @@ func (a *app) render(w http.ResponseWriter, page string) {
 	if page == "company-tax" {
 		ct := a.estimateCT()
 		d.CT, d.PBT = &ct, a.profitBeforeTax()
-		d.DepAddBack, d.CapAllow = a.bal(chart.Depreciation), a.capitalAllowances()
+		d.DepAddBack, d.CapAllow = a.fyMovement(chart.Depreciation), a.capitalAllowances()
+		d.CTProvided = a.fyMovement(chart.CorpTaxCharge)
 	}
 	if page == "accounting.accounts" {
 		if acc, err := a.accounts(); err == nil {
@@ -1553,7 +1564,7 @@ func (a *app) routes() *http.ServeMux {
 	// Company Tax.
 	mux.HandleFunc("/company-tax/provide", a.run("company-tax", "/company-tax", func(r *http.Request) (themes.Operation, string, error) {
 		ct := a.estimateCT()
-		delta, err := ct.Charge.Sub(a.bal(chart.CorpTaxCharge))
+		delta, err := ct.Charge.Sub(a.fyMovement(chart.CorpTaxCharge))
 		if err != nil {
 			return nil, "", err
 		}
