@@ -309,6 +309,23 @@ func (a *app) seedShareCapital() {
 	}
 }
 
+// clearBooks empties the ledger and everything derived from it, then seeds share
+// capital again from the register. The company details, the register, today's
+// date and the saved statement mappings stay: they describe the company, not
+// its books.
+func (a *app) clearBooks() {
+	a.book, _ = chart.NewUKMicroLtdBook(a.co.Currency)
+	a.sl = salesledger.New()
+	a.purch = purchaseledger.New()
+	a.invoiceDocs, a.invoiceOrder, a.costs, a.stmtLines = map[string]*invoiceDoc{}, nil, nil, nil
+	a.assets, a.employees = nil, nil
+	a.banks, a.mainBank = defaultBanks(), chart.Bank
+	a.entries, a.seq, a.lastPayroll, a.lastDividend = nil, 0, nil, nil
+	a.closedThrough = ledger.Date{}
+	a.fxBalances, a.pendingStmt, a.lastImport = nil, nil, nil
+	a.seedShareCapital()
+}
+
 // --- helpers ---
 
 func (a *app) bal(code string) money.Money { v, _ := a.book.Balance(code); return v }
@@ -1711,17 +1728,9 @@ func (a *app) routes() *http.ServeMux {
 		a.mu.Lock()
 		a.co = company.Default()
 		a.today = ledger.NewDate(2026, time.June, 1)
-		a.book, _ = chart.NewUKMicroLtdBook(a.co.Currency)
-		a.sl = salesledger.New()
-		a.purch = purchaseledger.New()
-		a.invoiceDocs, a.invoiceOrder, a.costs, a.stmtLines = map[string]*invoiceDoc{}, nil, nil, nil
-		a.assets = nil
-		a.employees = nil
-		a.banks = defaultBanks()
-		a.mainBank = chart.Bank
 		a.reg = defaultRegister(a.co.Currency, a.co.Incorporated)
-		a.entries, a.seq, a.lastPayroll, a.lastDividend = nil, 0, nil, nil
-		a.seedShareCapital()
+		a.statementSpecs = nil
+		a.clearBooks()
 		a.flash = "✓ Started a fresh company"
 		a.mu.Unlock()
 		http.Redirect(w, r, "/", http.StatusSeeOther)

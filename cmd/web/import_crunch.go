@@ -79,6 +79,11 @@ func (a *app) importArchive(w http.ResponseWriter, r *http.Request, profile impo
 		http.Redirect(w, r, "/company/import", http.StatusSeeOther)
 		return
 	}
+	// The export is read in full before anything is cleared, so a bad archive
+	// leaves the existing books untouched.
+	if r.FormValue("replace") != "" {
+		a.clearBooks()
+	}
 	rep := a.applyBatch(profile.Name(), batch, issues)
 	a.lastImport = rep // persistMiddleware saves after the request
 	posted := 0

@@ -302,6 +302,7 @@
 <div class="card"><h3>Import a Crunch export</h3>
 <form method="post" action="/company/import/crunch" enctype="multipart/form-data">
  <label>Export archive (the .zip from Crunch → Export data)<input type="file" name="file" accept=".zip,application/zip"></label>
+ <label class="chk"><input type="checkbox" name="replace" value="1"> Replace the books first — clears every posting, invoice, bill and bank account; keeps the company details and the register</label>
  <button>Import Crunch export</button></form>
 <p class="muted">Reads every workbook in the archive — sales invoices and credit notes, client payments, expenses and their line items, money transfers, bank deposits, interest, salaries, dividends, director withdrawals, tax payments and rebates — and posts them. Bank accounts named in the export are created. Set the company details, year end and main bank account first: payments whose account the export does not name go to the main account.</p></div>
 {{with .LastImport}}<div class="card"><h3>Last import — {{.Profile}}</h3>
