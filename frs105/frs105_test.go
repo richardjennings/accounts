@@ -131,7 +131,7 @@ func TestIXBRLIsWellFormedAndTagged(t *testing.T) {
 	if strings.Contains(doc, "DRAFT") {
 		t.Error("approved accounts are marked as a draft")
 	}
-	if a.Prior != nil {
+	if a.Prior != nil || strings.Contains(doc, "prior-period") || strings.Contains(doc, "comparative") {
 		t.Error("a first-year set of accounts has a comparative")
 	}
 }
@@ -190,5 +190,23 @@ func TestComparatives(t *testing.T) {
 	}
 	if !a.Balances() || !a.Prior.Balances() {
 		t.Error("a year does not balance")
+	}
+
+	// The iXBRL carries the comparative column with its own contexts.
+	doc, err := a.IXBRL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`<xbrli:context id="prior-period-end">`, `<xbrli:instant>2027-03-31</xbrli:instant>`,
+		`<xbrli:context id="prior-period">`, `<xbrli:startDate>2026-04-01</xbrli:startDate><xbrli:endDate>2027-03-31</xbrli:endDate>`,
+		`<tr class="head"><th></th><th class="num">2028-03-31</th><th class="num">2027-03-31</th></tr>`,
+		`name="uk-core:TurnoverRevenue" contextRef="period" unitRef="GBP" decimals="2">5000.00</ix:nonFraction></td><td class="num">£<ix:nonFraction name="uk-core:TurnoverRevenue" contextRef="prior-period" unitRef="GBP" decimals="2">2000.00</ix:nonFraction>`,
+		`name="uk-core:NetAssetsLiabilities" contextRef="prior-period-end" unitRef="GBP" decimals="2">1800.00<`,
+		"with comparative figures for the year ended 2027-03-31",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("iXBRL missing %q", want)
+		}
 	}
 }
