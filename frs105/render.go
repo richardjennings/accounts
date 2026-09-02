@@ -2,6 +2,7 @@ package frs105
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/richardjennings/accounts/ledger"
@@ -18,15 +19,19 @@ const (
 
 	chScheme = "http://www.companieshouse.gov.uk/"
 	gbpUnit  = "GBP"
+	pureUnit = "pure" // a count, such as the number of employees
 
-	ctxInstant = "period-end"
-	ctxPeriod  = "period"
+	ctxInstant      = "period-end"
+	ctxPeriod       = "period"
+	ctxPriorInstant = "prior-period-end"
+	ctxPriorPeriod  = "prior-period"
 )
 
 const accountsCSS = "body{font-family:Georgia,'Times New Roman',serif;color:#111;max-width:720px;margin:24px auto;padding:0 24px;line-height:1.5}" +
 	"h1{font-size:20px}h2{font-size:15px;border-bottom:1px solid #000;padding-bottom:3px;margin-top:28px}" +
 	"table{border-collapse:collapse;width:100%;font-size:14px;margin:8px 0}" +
 	"td{padding:3px 6px}td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}" +
+	"th{font-weight:normal;font-size:12px;color:#555;padding:3px 6px}th.num{text-align:right}" +
 	"tr.subtotal td{border-top:1px solid #000;font-weight:bold}tr.total td{border-top:1px solid #000;border-bottom:3px double #000;font-weight:bold}" +
 	".st{font-size:12px;margin:6px 0}.muted{color:#555;font-size:12px}"
 
@@ -41,84 +46,121 @@ func amount(m money.Money) ixbrl.Amount {
 	return ixbrl.Amount{Magnitude: s}
 }
 
-// fig is a tagged figure shown £-prefixed (negatives in brackets).
-func fig(concept, ctx string, m money.Money) ixbrl.Inline { return figure(concept, ctx, m, false) }
-
-// deduct is a tagged figure always shown as a bracketed deduction (creditors, costs).
-func deduct(concept, ctx string, m money.Money) ixbrl.Inline { return figure(concept, ctx, m, true) }
-
-func figure(concept, ctx string, m money.Money, bracket bool) ixbrl.Inline {
+// figure is a tagged figure shown £-prefixed. A deduction (creditors, costs) and a
+// negative value are shown in brackets.
+func figure(concept, ctx string, m money.Money, deduct bool) ixbrl.Inline {
 	fact := ixbrl.Numeric(concept, ctx, gbpUnit, amount(m), 2)
-	if bracket || m.IsNegative() {
+	if deduct || m.IsNegative() {
 		return ixbrl.Seq(ixbrl.Text("(£"), fact, ixbrl.Text(")"))
 	}
 	return ixbrl.Seq(ixbrl.Text("£"), fact)
 }
 
-func row(label string, amount ixbrl.Inline) ixbrl.Row {
-	return ixbrl.Row{Label: label, Amount: amount}
+// getter picks one figure out of a year's Figures.
+type getter func(Figures) money.Money
+
+// line builds one row of a statement: the year's figure tagged in the current
+// context and, when there is a year before, its figure in the prior context.
+func (a Accounts) line(label, emphasis, concept string, instant bool, get getter, deduct bool) ixbrl.Row {
+	ctx, priorCtx := ctxPeriod, ctxPriorPeriod
+	if instant {
+		ctx, priorCtx = ctxInstant, ctxPriorInstant
+	}
+	r := ixbrl.Row{Label: label, Emphasis: emphasis, Amount: figure(concept, ctx, get(a.Figures), deduct)}
+	if a.Prior != nil {
+		r.Prior = figure(concept, priorCtx, get(*a.Prior), deduct)
+	}
+	return r
 }
-func subtotal(label string, amount ixbrl.Inline) ixbrl.Row {
-	return ixbrl.Row{Label: label, Amount: amount, Emphasis: "subtotal"}
-}
-func grand(label string, amount ixbrl.Inline) ixbrl.Row {
-	return ixbrl.Row{Label: label, Amount: amount, Emphasis: "total"}
+
+// heads are the column headings: the year end, then the year before's when there is one.
+func (a Accounts) heads() []string {
+	h := []string{iso(a.FY.End)}
+	if a.Prior != nil {
+		h = append(h, iso(a.Prior.FY.End))
+	}
+	return h
 }
 
 // document builds the statutory accounts as an inline-XBRL document.
 func (a Accounts) document() ixbrl.Document {
-	inst := ixbrl.Context{ID: ctxInstant, EntityScheme: chScheme, EntityID: a.Co.Number, Instant: iso(a.FY.End)}
-	per := ixbrl.Context{ID: ctxPeriod, EntityScheme: chScheme, EntityID: a.Co.Number, Start: iso(a.FY.Start), End: iso(a.FY.End)}
+	contexts := []ixbrl.Context{
+		{ID: ctxInstant, EntityScheme: chScheme, EntityID: a.Co.Number, Instant: iso(a.FY.End)},
+		{ID: ctxPeriod, EntityScheme: chScheme, EntityID: a.Co.Number, Start: iso(a.FY.Start), End: iso(a.FY.End)},
+	}
+	period := "Micro-entity accounts for the year ended " + iso(a.FY.End)
+	if a.Prior != nil {
+		contexts = append(contexts,
+			ixbrl.Context{ID: ctxPriorInstant, EntityScheme: chScheme, EntityID: a.Co.Number, Instant: iso(a.Prior.FY.End)},
+			ixbrl.Context{ID: ctxPriorPeriod, EntityScheme: chScheme, EntityID: a.Co.Number, Start: iso(a.Prior.FY.Start), End: iso(a.Prior.FY.End)},
+		)
+		period += ", with comparative figures for the year ended " + iso(a.Prior.FY.End)
+	}
 
+	const instant, duration = true, false
 	body := []ixbrl.Block{
 		ixbrl.Heading(1, ixbrl.NonNumeric("uk-bus:EntityCurrentLegalOrRegisteredName", ctxInstant, a.Co.Name)),
 		ixbrl.Paragraph("muted", ixbrl.Text("Company registration number "), ixbrl.NonNumeric("uk-bus:UKCompaniesHouseRegisteredNumber", ctxInstant, a.Co.Number)),
-		ixbrl.Paragraph("", ixbrl.Text("Micro-entity accounts for the year ended "+iso(a.FY.End))),
+		ixbrl.Paragraph("", ixbrl.Text(period)),
 
 		ixbrl.Heading(2, ixbrl.Text("Balance sheet as at "+iso(a.FY.End))),
-		ixbrl.Rows(
-			row("Fixed assets", fig("uk-core:FixedAssets", ctxInstant, a.FixedAssets)),
-			row("Current assets", fig("uk-core:CurrentAssets", ctxInstant, a.CurrentAssets)),
-			row("Creditors: amounts falling due within one year", deduct("uk-core:Creditors", ctxInstant, a.CreditorsWithin1Yr)),
-			subtotal("Net current assets", fig("uk-core:NetCurrentAssetsLiabilities", ctxInstant, a.NetCurrentAssets)),
-			subtotal("Total assets less current liabilities", fig("uk-core:TotalAssetsLessCurrentLiabilities", ctxInstant, a.TotalAssetsLessCL)),
-			grand("Net assets", fig("uk-core:NetAssetsLiabilities", ctxInstant, a.NetAssets)),
+		ixbrl.Table(a.heads(),
+			a.line("Fixed assets", "", "uk-core:FixedAssets", instant, func(f Figures) money.Money { return f.FixedAssets }, false),
+			a.line("Current assets", "", "uk-core:CurrentAssets", instant, func(f Figures) money.Money { return f.CurrentAssets }, false),
+			a.line("Creditors: amounts falling due within one year", "", "uk-core:Creditors", instant, func(f Figures) money.Money { return f.CreditorsWithin1Yr }, true),
+			a.line("Net current assets", "subtotal", "uk-core:NetCurrentAssetsLiabilities", instant, func(f Figures) money.Money { return f.NetCurrentAssets }, false),
+			a.line("Total assets less current liabilities", "subtotal", "uk-core:TotalAssetsLessCurrentLiabilities", instant, func(f Figures) money.Money { return f.TotalAssetsLessCL }, false),
+			a.line("Net assets", "total", "uk-core:NetAssetsLiabilities", instant, func(f Figures) money.Money { return f.NetAssets }, false),
 		),
 
 		ixbrl.Heading(2, ixbrl.Text("Capital and reserves")),
-		ixbrl.Rows(
-			row("Called-up share capital", fig("uk-core:CalledUpShareCapital", ctxInstant, a.CalledUpCapital)),
-			row("Profit and loss account", fig("uk-core:RetainedEarningsAccumulatedLosses", ctxInstant, a.ProfitLossReserve)),
-			grand("Shareholders' funds", fig("uk-core:Equity", ctxInstant, a.CapitalAndReserves)),
+		ixbrl.Table(a.heads(),
+			a.line("Called-up share capital", "", "uk-core:CalledUpShareCapital", instant, func(f Figures) money.Money { return f.CalledUpCapital }, false),
+			a.line("Profit and loss account", "", "uk-core:RetainedEarningsAccumulatedLosses", instant, func(f Figures) money.Money { return f.ProfitLossReserve }, false),
+			a.line("Shareholders' funds", "total", "uk-core:Equity", instant, func(f Figures) money.Money { return f.CapitalAndReserves }, false),
 		),
 	}
 	for _, s := range a.statements() {
 		body = append(body, ixbrl.Paragraph("st", ixbrl.Text(s)))
 	}
+	body = append(body, ixbrl.Paragraph("st",
+		ixbrl.Text("The average number of persons employed by the company during the year, including directors, was "),
+		ixbrl.Numeric("uk-core:AverageNumberEmployeesDuringPeriod", ctxPeriod, pureUnit, ixbrl.Amount{Magnitude: strconv.Itoa(a.AverageEmployees)}, 0),
+		ixbrl.Text(".")))
+	if a.Approved() {
+		body = append(body,
+			ixbrl.Paragraph("st", ixbrl.Text("Approved by the board on "),
+				ixbrl.NonNumeric("uk-core:DateAuthorisationFinancialStatementsForIssue", ctxInstant, iso(a.ApprovedOn)),
+				ixbrl.Text(" and signed on its behalf by:")),
+			ixbrl.Paragraph("st", ixbrl.NonNumeric("uk-bus:NameEntityOfficer", ctxInstant, a.SignedBy), ixbrl.Text(" — Director")))
+	} else {
+		body = append(body, ixbrl.Paragraph("st", ixbrl.Text("DRAFT — the board has not yet approved these accounts.")))
+	}
 	body = append(body,
-		ixbrl.Paragraph("st", ixbrl.Text("Approved by the board and signed on its behalf by:")),
-		ixbrl.Paragraph("st", ixbrl.Text(a.SignedBy+" — Director")),
-
 		ixbrl.Heading(2, ixbrl.Text("Profit and loss account for the year ended "+iso(a.FY.End))),
-		ixbrl.Rows(
-			row("Turnover", fig("uk-core:TurnoverRevenue", ctxPeriod, a.Turnover)),
-			row("Cost of sales", deduct("uk-core:CostSales", ctxPeriod, a.CostOfSales)),
-			subtotal("Gross profit", fig("uk-core:GrossProfitLoss", ctxPeriod, a.GrossProfit)),
-			row("Administrative expenses", deduct("uk-core:AdministrativeExpenses", ctxPeriod, a.AdminExpenses)),
-			subtotal("Profit before taxation", fig("uk-core:ProfitLossOnOrdinaryActivitiesBeforeTax", ctxPeriod, a.ProfitBeforeTax)),
-			row("Tax on profit", deduct("uk-core:TaxTaxCreditOnProfitOrLossOnOrdinaryActivities", ctxPeriod, a.Tax)),
-			grand("Profit for the financial year", fig("uk-core:ProfitLoss", ctxPeriod, a.ProfitForYear)),
+		ixbrl.Table(a.heads(),
+			a.line("Turnover", "", "uk-core:TurnoverRevenue", duration, func(f Figures) money.Money { return f.Turnover }, false),
+			a.line("Cost of sales", "", "uk-core:CostSales", duration, func(f Figures) money.Money { return f.CostOfSales }, true),
+			a.line("Gross profit", "subtotal", "uk-core:GrossProfitLoss", duration, func(f Figures) money.Money { return f.GrossProfit }, false),
+			a.line("Administrative expenses", "", "uk-core:AdministrativeExpenses", duration, func(f Figures) money.Money { return f.AdminExpenses }, true),
+			a.line("Profit before taxation", "subtotal", "uk-core:ProfitLossOnOrdinaryActivitiesBeforeTax", duration, func(f Figures) money.Money { return f.ProfitBeforeTax }, false),
+			a.line("Tax on profit", "", "uk-core:TaxTaxCreditOnProfitOrLossOnOrdinaryActivities", duration, func(f Figures) money.Money { return f.Tax }, true),
+			a.line("Profit for the financial year", "total", "uk-core:ProfitLoss", duration, func(f Figures) money.Money { return f.ProfitForYear }, false),
 		),
 		ixbrl.Paragraph("muted", ixbrl.Text("Generated by a virtual accounting game. Inline XBRL is tagged with representative FRC-taxonomy concepts for learning; the document is not filed or transmitted.")),
 	)
 
+	title := a.Co.Name + " — accounts " + iso(a.FY.End)
+	if !a.Approved() {
+		title += " (draft)"
+	}
 	return ixbrl.Document{
-		Title:      a.Co.Name + " — accounts " + iso(a.FY.End),
+		Title:      title,
 		SchemaRef:  schemaRef,
 		Style:      accountsCSS,
 		Namespaces: map[string]string{"uk-core": nsCore, "uk-bus": nsBus},
-		Contexts:   []ixbrl.Context{inst, per},
-		Units:      []ixbrl.Unit{{ID: gbpUnit, Measure: "iso4217:GBP"}},
+		Contexts:   contexts,
+		Units:      []ixbrl.Unit{{ID: gbpUnit, Measure: "iso4217:GBP"}, {ID: pureUnit, Measure: "xbrli:pure"}},
 		Body:       body,
 	}
 }

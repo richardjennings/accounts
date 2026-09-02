@@ -845,26 +845,30 @@
 {{define "page:accounting.accounts"}}<h1>Accounting · Year-end accounts <span class="muted">({{.FY}})</span></h1>
 {{with .Acc}}
 <div class="row">
- <div class="card snap" style="max-width:360px"><h3>Balance sheet at {{.FY.End}}</h3>
-  <div class="kv"><span>Fixed assets</span><b>{{money .FixedAssets}}</b></div>
-  <div class="kv"><span>Current assets</span><b>{{money .CurrentAssets}}</b></div>
-  <div class="kv"><span>Creditors &lt; 1 year</span><b>({{money .CreditorsWithin1Yr}})</b></div>
-  <div class="kv"><span>Net assets</span><b>{{money .NetAssets}}</b></div>
-  <div class="kv tot"><span>Capital &amp; reserves</span><b>{{money .CapitalAndReserves}}</b></div>
-  <div class="kv"><span>Balances?</span><b>{{if .Balances}}✓ yes{{else}}✗ no{{end}}</b></div></div>
- <div class="card snap" style="max-width:360px"><h3>Profit &amp; loss for {{.FY.Number}}</h3>
-  <div class="kv"><span>Turnover</span><b>{{money .Turnover}}</b></div>
-  <div class="kv"><span>Gross profit</span><b>{{money .GrossProfit}}</b></div>
-  <div class="kv"><span>Administrative expenses</span><b>({{money .AdminExpenses}})</b></div>
-  <div class="kv"><span>Profit before tax</span><b>{{money .ProfitBeforeTax}}</b></div>
-  <div class="kv"><span>Tax</span><b>({{money .Tax}})</b></div>
-  <div class="kv tot"><span>Profit for the year</span><b>{{money .ProfitForYear}}</b></div></div>
+ <div class="card" style="max-width:460px"><h3>Balance sheet at {{.FY.End}}</h3>
+  <table class="stmt"><tr class="head"><th></th><th class="num">{{.FY.End}}</th>{{with .Prior}}<th class="num">{{.FY.End}}</th>{{end}}</tr>
+  {{range $.BSLines}}<tr{{if .Total}} class="tot"{{end}}><td>{{.Label}}</td><td class="num">{{if .Deduct}}({{money .Current}}){{else}}{{money .Current}}{{end}}</td>{{if $.Acc.Prior}}<td class="num">{{if .Deduct}}({{money .Prior}}){{else}}{{money .Prior}}{{end}}</td>{{end}}</tr>{{end}}
+  </table>
+  <p class="muted">Balances? {{if .Balances}}✓ yes{{else}}✗ no{{end}}. {{if .Prior}}The second column is the comparative: the year to {{.Prior.FY.End}}.{{else}}First year, so no comparative column.{{end}}</p></div>
+ <div class="card" style="max-width:460px"><h3>Profit &amp; loss for the year to {{.FY.End}}</h3>
+  <table class="stmt"><tr class="head"><th></th><th class="num">{{.FY.End}}</th>{{with .Prior}}<th class="num">{{.FY.End}}</th>{{end}}</tr>
+  {{range $.PLLines}}<tr{{if .Total}} class="tot"{{end}}><td>{{.Label}}</td><td class="num">{{if .Deduct}}({{money .Current}}){{else}}{{money .Current}}{{end}}</td>{{if $.Acc.Prior}}<td class="num">{{if .Deduct}}({{money .Prior}}){{else}}{{money .Prior}}{{end}}</td>{{end}}</tr>{{end}}
+  </table></div>
 </div>
-<div class="card"><h3>Statutory micro-entity accounts (FRS 105)</h3>
- <p>The full accounts are generated as an <b>inline-XBRL (iXBRL)</b> document — the exact format filed at Companies House and attached to a CT600. It reads as the accounts in your browser and carries machine-readable XBRL facts inline.</p>
- <p><a class="btn" href="/accounting/accounts/ixbrl" target="_blank">View accounts (iXBRL)</a>
-    <a class="btn ghost" href="/accounting/accounts/ixbrl?download=1">Download iXBRL file</a></p>
- <p class="muted">Signed on behalf of the board by <b>{{.SignedBy}}</b>. In keeping with the game, the document is generated perfectly but <b>never filed or transmitted</b> — no Companies House or HMRC submission.</p>
+<div class="row">
+ <div class="card"><h3>Approval by the board</h3>
+  {{if .Approved}}<p>Approved on <b>{{.ApprovedOn}}</b> and signed by <b>{{.SignedBy}}</b>. Average number of employees, including directors: <b>{{.AverageEmployees}}</b>.</p>{{else}}<p class="muted">Not yet approved. The iXBRL is marked as a draft until the board approves the accounts.</p>{{end}}
+  <form method="post" action="/accounting/accounts/approve" class="wide">
+   <label>Approved on<input type="date" name="date" value="{{if .Approved}}{{.ApprovedOn}}{{else}}{{$.Today}}{{end}}"></label>
+   <label>Signed by<select name="signer">{{range $.Directors}}<option value="{{.Name}}"{{if eq .Name $.Acc.SignedBy}} selected{{end}}>{{.Name}}</option>{{else}}<option value="{{$.Acc.SignedBy}}">{{$.Acc.SignedBy}}</option>{{end}}</select></label>
+   <label>Average number of employees (incl. directors)<input name="employees" value="{{.AverageEmployees}}"></label>
+   <button>{{if .Approved}}Update approval{{else}}Record approval{{end}}</button></form>
+  <p class="muted">Companies House needs the date of approval, the signing director and the average number of employees on every micro-entity filing. Today's headcount is the default; the board records the year's average.</p></div>
+ <div class="card"><h3>Statutory micro-entity accounts (FRS 105)</h3>
+  <p>The full accounts are generated as an <b>inline-XBRL (iXBRL)</b> document — the exact format filed at Companies House and attached to a CT600. It reads as the accounts in your browser and carries machine-readable XBRL facts inline.</p>
+  <p><a class="btn" href="/accounting/accounts/ixbrl" target="_blank">View accounts (iXBRL)</a>
+     <a class="btn ghost" href="/accounting/accounts/ixbrl?download=1">Download iXBRL file</a></p>
+  <p class="muted">In keeping with the game, the document is generated perfectly but <b>never filed or transmitted</b> — no Companies House or HMRC submission.</p></div>
 </div>
 {{else}}<p class="muted">Accounts could not be built for this period.</p>{{end}}{{end}}
 
