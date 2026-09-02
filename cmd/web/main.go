@@ -239,14 +239,47 @@ type dividendRun struct {
 }
 
 // defaultRegister is the starter statutory register: one director who is also the
-// sole shareholder, holding 100 ordinary £1 shares.
+// sole shareholder, holding 100 ordinary £1 shares, and so the one person with
+// significant control.
 func defaultRegister(cur money.Currency, inc ledger.Date) register.Register {
 	nominal, _ := money.Parse(cur, "1.00")
 	return register.Register{
-		Officers: []register.Officer{{Name: "Alex Director", Role: register.Director, Appointed: inc}},
+		Officers: []register.Officer{{Name: "Alex Director", Role: register.Director, Appointed: inc, Nationality: "British", Occupation: "Director"}},
 		Members:  []register.Member{{Name: "Alex Director", Class: "Ordinary", Shares: 100, Since: inc}},
+		PSCs:     []register.PSC{{Name: "Alex Director", Notified: inc, Shares: register.AtLeast75, Voting: register.AtLeast75, AppointsDirectors: true}},
 		Nominal:  nominal,
 	}
+}
+
+// band parses a control band from a form field; out-of-range values mean none.
+func band(s string) register.ControlBand {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < int(register.NoControl) || n > int(register.AtLeast75) {
+		return register.NoControl
+	}
+	return register.ControlBand(n)
+}
+
+// officerDetails sets an officer's registrable details from the form. Name, role and
+// appointment date are fixed at appointment, so the form does not carry them.
+func officerDetails(o *register.Officer, r *http.Request) {
+	o.ServiceAddress = strings.TrimSpace(r.FormValue("address"))
+	o.DateOfBirth = parseDate(r.FormValue("dob"), ledger.Date{})
+	o.Nationality = strings.TrimSpace(r.FormValue("nationality"))
+	o.Occupation = strings.TrimSpace(r.FormValue("occupation"))
+	o.IdentityVerifiedOn = parseDate(r.FormValue("verified"), ledger.Date{})
+	o.Resigned = parseDate(r.FormValue("resigned"), ledger.Date{})
+}
+
+// pscDetails sets a person with significant control's nature of control and the
+// dates that go with it from the form.
+func pscDetails(p *register.PSC, r *http.Request) {
+	p.Shares = band(r.FormValue("shares"))
+	p.Voting = band(r.FormValue("voting"))
+	p.AppointsDirectors = r.FormValue("appoints") != ""
+	p.SignificantInfluence = r.FormValue("influence") != ""
+	p.IdentityVerifiedOn = parseDate(r.FormValue("verified"), ledger.Date{})
+	p.Ceased = parseDate(r.FormValue("ceased"), ledger.Date{})
 }
 
 func newApp(dataPath string) (*app, error) {
@@ -868,6 +901,8 @@ type pageData struct {
 
 	Officers      []register.Officer
 	Members       []register.Member
+	PSCs          []register.PSC
+	Bands         []register.ControlBand
 	Nominal       money.Money
 	TotalShares   int
 	IssuedCapital money.Money
@@ -953,6 +988,7 @@ func (a *app) render(w http.ResponseWriter, page string) {
 		d.BankRows = append(d.BankRows, row)
 	}
 	d.Officers, d.Members, d.Nominal = a.reg.Officers, a.reg.Members, a.reg.Nominal
+	d.PSCs, d.Bands = a.reg.PSCs, register.Bands
 	d.TotalShares, d.IssuedCapital, d.LastDividend = a.reg.TotalShares(), a.reg.IssuedCapital(), a.lastDividend
 	d.Costs = a.costs
 	for _, c := range a.costs {
@@ -1199,6 +1235,52 @@ func (a *app) routes() *http.ServeMux {
 			} else {
 				a.reg.Officers = append(a.reg.Officers, register.Officer{Name: name, Role: role, Appointed: parseDate(r.FormValue("date"), a.today)})
 				a.flash = "✓ Appointed " + name + " as " + string(role)
+			}
+		}
+		http.Redirect(w, r, "/company/people", http.StatusSeeOther)
+	})
+	mux.HandleFunc("/company/officers/update", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if r.Method == http.MethodPost {
+			if i, err := strconv.Atoi(r.FormValue("i")); err == nil && i >= 0 && i < len(a.reg.Officers) {
+				officerDetails(&a.reg.Officers[i], r)
+				a.flash = "✓ Updated " + a.reg.Officers[i].Name
+			} else {
+				a.flash = "⚠ unknown officer"
+			}
+		}
+		http.Redirect(w, r, "/company/people", http.StatusSeeOther)
+	})
+	mux.HandleFunc("/company/pscs/add", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if r.Method == http.MethodPost {
+			name := strings.TrimSpace(r.FormValue("name"))
+			if name == "" {
+				a.flash = "⚠ enter the person's name"
+			} else {
+				p := register.PSC{Name: name, Notified: parseDate(r.FormValue("date"), a.today)}
+				pscDetails(&p, r)
+				if len(p.NatureOfControl()) == 0 {
+					a.flash = "⚠ choose at least one nature of control"
+				} else {
+					a.reg.PSCs = append(a.reg.PSCs, p)
+					a.flash = "✓ Registered " + name + " as a person with significant control"
+				}
+			}
+		}
+		http.Redirect(w, r, "/company/people", http.StatusSeeOther)
+	})
+	mux.HandleFunc("/company/pscs/update", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if r.Method == http.MethodPost {
+			if i, err := strconv.Atoi(r.FormValue("i")); err == nil && i >= 0 && i < len(a.reg.PSCs) {
+				pscDetails(&a.reg.PSCs[i], r)
+				a.flash = "✓ Updated " + a.reg.PSCs[i].Name
+			} else {
+				a.flash = "⚠ unknown person with significant control"
 			}
 		}
 		http.Redirect(w, r, "/company/people", http.StatusSeeOther)

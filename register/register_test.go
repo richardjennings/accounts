@@ -115,3 +115,64 @@ func TestIssueSharesPostsToLedger(t *testing.T) {
 		t.Errorf("share capital = %s, want GBP 100.00", sc)
 	}
 }
+
+func TestBandForShares(t *testing.T) {
+	cases := []struct {
+		held, total int
+		want        ControlBand
+	}{
+		{25, 100, NoControl}, {26, 100, Over25}, {50, 100, Over25}, {51, 100, Over50},
+		{74, 100, Over50}, {75, 100, AtLeast75}, {100, 100, AtLeast75}, {1, 0, NoControl},
+	}
+	for _, c := range cases {
+		if got := BandForShares(c.held, c.total); got != c.want {
+			t.Errorf("BandForShares(%d, %d) = %s, want %s", c.held, c.total, got, c.want)
+		}
+	}
+}
+
+func TestPSCNatureOfControl(t *testing.T) {
+	p := PSC{Name: "Alex Director", Notified: date(1), Shares: AtLeast75, Voting: AtLeast75, AppointsDirectors: true}
+	got := p.NatureOfControl()
+	want := []string{
+		"Ownership of shares – 75% or more",
+		"Ownership of voting rights – 75% or more",
+		"Right to appoint or remove directors",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("nature of control = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("statement %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if p.IdentityVerified() {
+		t.Error("a PSC with no verification date is shown as verified")
+	}
+	p.IdentityVerifiedOn = date(3)
+	if !p.IdentityVerified() {
+		t.Error("a PSC with a verification date is not shown as verified")
+	}
+}
+
+func TestCurrentPSCs(t *testing.T) {
+	r := Register{PSCs: []PSC{
+		{Name: "Alex Director", Notified: date(1)},
+		{Name: "Pat Past", Notified: date(1), Ceased: date(2)},
+	}}
+	if got := r.CurrentPSCs(); len(got) != 1 || got[0].Name != "Alex Director" {
+		t.Errorf("current PSCs = %+v, want just Alex Director", got)
+	}
+}
+
+func TestOfficerIdentityVerified(t *testing.T) {
+	o := Officer{Name: "Alex Director", Role: Director, Appointed: date(1)}
+	if o.IdentityVerified() {
+		t.Error("an officer with no verification date is shown as verified")
+	}
+	o.IdentityVerifiedOn = date(5)
+	if !o.IdentityVerified() {
+		t.Error("an officer with a verification date is not shown as verified")
+	}
+}

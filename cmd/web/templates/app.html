@@ -70,6 +70,9 @@
  .badge{display:inline-block;background:#e6f0ff;color:#2f66d0;border-radius:4px;padding:1px 8px;font-size:11px;font-weight:600}
  .badge.warn{background:#fdecdc;color:#b34700}
  tr.over td{color:#b34700}
+ td.sub{padding:0 8px 8px;border-bottom:1px solid #eef2f7}
+ td.sub summary{cursor:pointer;color:#2f66d0;font-size:12px;font-weight:600}
+ td.sub form{margin-top:8px}
  button.link{background:none;color:#2f66d0;padding:0;font-weight:600}
  button.link:hover{background:none;text-decoration:underline}
  .stmt form{display:inline}
@@ -294,13 +297,45 @@
  <span class="muted">to</span><input name="to" placeholder="Recipient name" style="max-width:200px">
  <button>Transfer</button></form></div>
 <div class="card"><h3>Register of directors &amp; officers</h3>
-<table class="stmt"><tr><th>Name</th><th>Role</th><th>Appointed</th><th>Status</th></tr>
-{{range .Officers}}<tr><td>{{.Name}}</td><td>{{.Role}}</td><td class="date">{{.Appointed}}</td><td>{{if .InOffice}}In office{{else}}Resigned {{.Resigned}}{{end}}</td></tr>{{end}}
+<table class="stmt"><tr><th>Name</th><th>Role</th><th>Appointed</th><th>Status</th><th>Identity</th></tr>
+{{range $i, $o := .Officers}}<tr><td>{{.Name}}</td><td>{{.Role}}</td><td class="date">{{.Appointed}}</td><td>{{if .InOffice}}In office{{else}}Resigned {{.Resigned}}{{end}}</td><td>{{if .IdentityVerified}}Verified {{.IdentityVerifiedOn}}{{else}}<span class="badge warn">not verified</span>{{end}}</td></tr>
+<tr><td colspan="5" class="sub"><details><summary>Registrable details</summary><form method="post" action="/company/officers/update" class="wide">
+ <input type="hidden" name="i" value="{{$i}}">
+ <label>Service address<input name="address" value="{{.ServiceAddress}}"></label>
+ <label>Date of birth<input type="date" name="dob" value="{{if not .DateOfBirth.IsZero}}{{.DateOfBirth}}{{end}}"></label>
+ <label>Nationality<input name="nationality" value="{{.Nationality}}"></label>
+ <label>Occupation<input name="occupation" value="{{.Occupation}}"></label>
+ <label>Identity verified on<input type="date" name="verified" value="{{if .IdentityVerified}}{{.IdentityVerifiedOn}}{{end}}"></label>
+ <label>Resigned on<input type="date" name="resigned" value="{{if not .InOffice}}{{.Resigned}}{{end}}"></label>
+ <button>Save</button></form></details></td></tr>{{end}}
 </table>
 <form method="post" action="/company/officers/add" class="inl">
  <input name="name" placeholder="New officer">
  <select name="role" style="max-width:150px"><option value="Director">Director</option><option value="Secretary">Secretary</option></select>
- {{template "datefield" .}}<button>Appoint</button></form></div>{{end}}
+ {{template "datefield" .}}<button>Appoint</button></form>
+<p class="muted">Every director must verify their identity with Companies House; record the date it was completed. Only the month and year of a date of birth appear on the public register.</p></div>
+<div class="card"><h3>Register of people with significant control (PSCs)</h3>
+<table class="stmt"><tr><th>Name</th><th>Notified</th><th>Nature of control</th><th>Status</th><th>Identity</th></tr>
+{{range $i, $p := .PSCs}}<tr><td>{{.Name}}</td><td class="date">{{.Notified}}</td><td>{{range .NatureOfControl}}<div>{{.}}</div>{{end}}</td><td>{{if .Current}}Current{{else}}Ceased {{.Ceased}}{{end}}</td><td>{{if .IdentityVerified}}Verified {{.IdentityVerifiedOn}}{{else}}<span class="badge warn">not verified</span>{{end}}</td></tr>
+<tr><td colspan="5" class="sub"><details><summary>Nature of control &amp; dates</summary><form method="post" action="/company/pscs/update" class="wide">
+ <input type="hidden" name="i" value="{{$i}}">
+ <label>Shares held<select name="shares"><option value="0">none</option>{{range $.Bands}}<option value="{{printf "%d" .}}"{{if eq . $p.Shares}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+ <label>Voting rights held<select name="voting"><option value="0">none</option>{{range $.Bands}}<option value="{{printf "%d" .}}"{{if eq . $p.Voting}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+ <label class="chk"><input type="checkbox" name="appoints" value="1"{{if .AppointsDirectors}} checked{{end}}> Right to appoint or remove directors</label>
+ <label class="chk"><input type="checkbox" name="influence" value="1"{{if .SignificantInfluence}} checked{{end}}> Significant influence or control</label>
+ <label>Identity verified on<input type="date" name="verified" value="{{if .IdentityVerified}}{{.IdentityVerifiedOn}}{{end}}"></label>
+ <label>Ceased on<input type="date" name="ceased" value="{{if not .Current}}{{.Ceased}}{{end}}"></label>
+ <button>Save</button></form></details></td></tr>{{end}}
+</table>
+<form method="post" action="/company/pscs/add" class="wide">
+ <label>Name<input name="name" placeholder="Person with significant control"></label>
+ <label>Notified on<input type="date" name="date" value="{{.Today}}"></label>
+ <label>Shares held<select name="shares"><option value="0">none</option>{{range .Bands}}<option value="{{printf "%d" .}}">{{.}}</option>{{end}}</select></label>
+ <label>Voting rights held<select name="voting"><option value="0">none</option>{{range .Bands}}<option value="{{printf "%d" .}}">{{.}}</option>{{end}}</select></label>
+ <label class="chk"><input type="checkbox" name="appoints" value="1"> Right to appoint or remove directors</label>
+ <label class="chk"><input type="checkbox" name="influence" value="1"> Significant influence or control</label>
+ <button>Register PSC</button></form>
+<p class="muted">A person who holds more than 25% of the shares or voting rights, can appoint or remove a majority of the directors, or otherwise has significant influence or control is a PSC. Every PSC must verify their identity with Companies House.</p></div>{{end}}
 
 
 {{define "page:company.import"}}<h1>Company · Import (CSV)</h1>
