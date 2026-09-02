@@ -68,6 +68,11 @@
  form.inl input,form.inl select{margin-top:0}
  form.inl label{margin-bottom:0}
  .badge{display:inline-block;background:#e6f0ff;color:#2f66d0;border-radius:4px;padding:1px 8px;font-size:11px;font-weight:600}
+ .badge.warn{background:#fdecdc;color:#b34700}
+ tr.over td{color:#b34700}
+ td.sub{padding:0 8px 8px;border-bottom:1px solid #eef2f7}
+ td.sub summary{cursor:pointer;color:#2f66d0;font-size:12px;font-weight:600}
+ td.sub form{margin-top:8px}
  button.link{background:none;color:#2f66d0;padding:0;font-weight:600}
  button.link:hover{background:none;text-decoration:underline}
  .stmt form{display:inline}
@@ -196,6 +201,8 @@
  <dt>Retained earnings</dt><dd>Accumulated profit kept in the company. The year-end close moves each year's profit here.</dd>
  <dt>Reconciliation</dt><dd>Checking your books against an external record — like a bank statement — until they agree.</dd>
  <dt>iXBRL</dt><dd>Inline XBRL: accounts that read normally in a browser but carry machine-readable tags — the format filed at Companies House.</dd>
+ <dt>Confirmation statement</dt><dd>The yearly check-in with Companies House that the registered details, officers, people with significant control and shareholders on the public register are right. Due within fourteen days after each twelve-month review period.</dd>
+ <dt>Key dates</dt><dd>When each filing and payment is due: accounts nine months after the year-end, corporation tax nine months and a day, the CT600 twelve months, and the confirmation statement fourteen days after its review period. See <a href="/company">Company · Details</a>.</dd>
 </dl></div>{{end}}
 
 
@@ -209,6 +216,11 @@
  <div class="kpi"><span>VAT owed</span><b>{{money .VATOwed}}</b></div>
  <div class="kpi"><span>Director's loan</span><b>{{money .DirLoan}}</b></div>
 </div>
+{{if .NextDue}}<div class="card"><h3>Next due</h3>
+<table class="stmt"><tr><th>Due</th><th>What</th><th>Covers</th><th>To</th></tr>
+{{range .NextDue}}<tr{{if .Overdue}} class="over"{{end}}><td class="date">{{.Due}}{{if .Overdue}} <span class="badge warn">overdue</span>{{end}}</td><td>{{.What}}</td><td class="muted">{{.Detail}}</td><td>{{.Recipient}}</td></tr>{{end}}
+</table>
+<p class="muted">The full list is under <a href="/company">Company · Details</a>.</p></div>{{end}}
 {{if .AllJournals}}<div class="card"><h3>Recent transactions</h3>
 <table class="txns"><tr><th>Date</th><th>Ref</th><th>Details</th><th>Postings</th></tr>
 {{range .AllJournals}}<tr><td class="date">{{.Date}}</td><td class="ref">{{.Ref}}</td><td>{{.Narrative}}</td><td class="post">{{range .Postings}}<span class="leg">{{.Side}} {{.Account}} {{.Amount}}</span>{{end}}</td></tr>{{end}}
@@ -223,18 +235,37 @@
   <label>Company number<input name="number" value="{{.Co.Number}}"></label>
   <label>SIC code (nature of business)<input name="sic" value="{{.Co.SICCode}}"></label>
   <label>Registered office<input name="office" value="{{.Co.RegisteredOffice}}"></label>
+  <label>Registered email address<input name="email" value="{{.Co.RegisteredEmail}}" placeholder="accounts@example.com"></label>
   <label>Date of incorporation<input type="date" name="incorporated" value="{{.Co.Incorporated}}"></label>
   <label>Financial year-end (day &amp; month)<input type="date" name="yearend" value="{{.YearEndDate}}"></label>
+  <label>Last confirmation statement date<input type="date" name="laststatement" value="{{if not .Co.LastStatementDate.IsZero}}{{.Co.LastStatementDate}}{{end}}"></label>
   <label class="chk"><input type="checkbox" name="vatreg" value="1"{{if .Co.VATRegistered}} checked{{end}}> VAT registered</label>
   <label>VAT number<input name="vatnumber" value="{{.Co.VATNumber}}" placeholder="GB123456789"></label>
+  <label>VAT quarter end month<select name="vatquarter"><option value="0">— not set —</option>{{range .Months}}<option value="{{printf "%d" .}}"{{if eq . $.Co.VATQuarterEndMonth}} selected{{end}}>{{.}}</option>{{end}}</select></label>
   <button>Save details</button></form>
-  <p class="muted">Base currency {{.Co.Currency.Code}}. Only the day and month of the year-end are used (it is the accounting reference date). Uncheck <b>VAT registered</b> to hide VAT from sales and expenses — a company below the registration threshold does not charge it.</p></div>
+  <p class="muted">Base currency {{.Co.Currency.Code}}. Only the day and month of the year-end are used (it is the accounting reference date). Uncheck <b>VAT registered</b> to hide VAT from sales and expenses — a company below the registration threshold does not charge it. The last confirmation statement date is the date the statement was made up to; leave it empty if none has been made yet.</p></div>
  <div class="card snap"><h3>Current status</h3>
   <div class="kv"><span>Financial year</span><b>FY{{.FY.Number}}</b></div>
   <div class="kv"><span>Period</span><b>{{.FY.Start}} → {{.FY.End}}</b></div>
   <div class="kv"><span>Year-end</span><b>{{.Co.YearEndLabel}}</b></div>
   <div class="kv tot"><span>Today</span><b>{{.Today}}</b></div></div>
-</div>{{end}}
+</div>
+<div class="card"><h3>Key dates</h3>
+<table class="stmt"><tr><th>Due</th><th>What</th><th>Covers</th><th>To</th></tr>
+{{range .KeyDates}}<tr{{if .Overdue}} class="over"{{end}}><td class="date">{{.Due}}{{if .Overdue}} <span class="badge warn">overdue</span>{{end}}</td><td>{{.What}}</td><td class="muted">{{.Detail}}</td><td>{{.Recipient}}</td></tr>{{end}}
+</table>
+<p class="muted">As at today ({{.Today}}), derived from the year-end, the date of incorporation and the last confirmation statement date. Annual accounts are due nine months after the year-end; corporation tax nine months and one day after it; the CT600 twelve months after it; the confirmation statement fourteen days after its twelve-month review period ends.{{if and .Co.VATRegistered (not .Co.VATQuarterEndMonth)}} Set the VAT quarter end month above to see VAT return dates.{{end}} PAYE dates appear once the company runs a payroll. Nothing here is filed for you — the game generates documents but never sends them.</p></div>
+<div class="card"><h3>Confirmation statement</h3>
+<div class="row">
+ <div class="snap" style="flex:1;min-width:250px">
+  <div class="kv"><span>Last made up to</span><b>{{if .Co.LastStatementDate.IsZero}}none yet{{else}}{{.Co.LastStatementDate}}{{end}}</b></div>
+  <div class="kv"><span>Next statement date</span><b>{{.NextStatementDate}}</b></div>
+  <div class="kv tot"><span>Deliver by</span><b>{{.NextStatementDue}}</b></div></div>
+ <div style="flex:1;min-width:250px">
+  <p><a class="btn" href="/company/confirmation-statement" target="_blank">View statement (made up to {{.NextStatementDate}})</a></p>
+  <form method="post" action="/company/statement/made" class="inl"><label>Made up to<input type="date" name="date" value="{{.NextStatementDate}}"></label><button>Record as made</button></form></div>
+</div>
+<p class="muted">The statement confirms the registered details, officers, people with significant control, shareholders and share capital as at the statement date. Recording it as made starts the next twelve-month review period. It is generated, never filed.</p></div>{{end}}
 
 
 {{define "page:company.year"}}<h1>Company · Financial year</h1>
@@ -279,13 +310,45 @@
  <span class="muted">to</span><input name="to" placeholder="Recipient name" style="max-width:200px">
  <button>Transfer</button></form></div>
 <div class="card"><h3>Register of directors &amp; officers</h3>
-<table class="stmt"><tr><th>Name</th><th>Role</th><th>Appointed</th><th>Status</th></tr>
-{{range .Officers}}<tr><td>{{.Name}}</td><td>{{.Role}}</td><td class="date">{{.Appointed}}</td><td>{{if .InOffice}}In office{{else}}Resigned {{.Resigned}}{{end}}</td></tr>{{end}}
+<table class="stmt"><tr><th>Name</th><th>Role</th><th>Appointed</th><th>Status</th><th>Identity</th></tr>
+{{range $i, $o := .Officers}}<tr><td>{{.Name}}</td><td>{{.Role}}</td><td class="date">{{.Appointed}}</td><td>{{if .InOffice}}In office{{else}}Resigned {{.Resigned}}{{end}}</td><td>{{if .IdentityVerified}}Verified {{.IdentityVerifiedOn}}{{else}}<span class="badge warn">not verified</span>{{end}}</td></tr>
+<tr><td colspan="5" class="sub"><details><summary>Registrable details</summary><form method="post" action="/company/officers/update" class="wide">
+ <input type="hidden" name="i" value="{{$i}}">
+ <label>Service address<input name="address" value="{{.ServiceAddress}}"></label>
+ <label>Date of birth<input type="date" name="dob" value="{{if not .DateOfBirth.IsZero}}{{.DateOfBirth}}{{end}}"></label>
+ <label>Nationality<input name="nationality" value="{{.Nationality}}"></label>
+ <label>Occupation<input name="occupation" value="{{.Occupation}}"></label>
+ <label>Identity verified on<input type="date" name="verified" value="{{if .IdentityVerified}}{{.IdentityVerifiedOn}}{{end}}"></label>
+ <label>Resigned on<input type="date" name="resigned" value="{{if not .InOffice}}{{.Resigned}}{{end}}"></label>
+ <button>Save</button></form></details></td></tr>{{end}}
 </table>
 <form method="post" action="/company/officers/add" class="inl">
  <input name="name" placeholder="New officer">
  <select name="role" style="max-width:150px"><option value="Director">Director</option><option value="Secretary">Secretary</option></select>
- {{template "datefield" .}}<button>Appoint</button></form></div>{{end}}
+ {{template "datefield" .}}<button>Appoint</button></form>
+<p class="muted">Every director must verify their identity with Companies House; record the date it was completed. Only the month and year of a date of birth appear on the public register.</p></div>
+<div class="card"><h3>Register of people with significant control (PSCs)</h3>
+<table class="stmt"><tr><th>Name</th><th>Notified</th><th>Nature of control</th><th>Status</th><th>Identity</th></tr>
+{{range $i, $p := .PSCs}}<tr><td>{{.Name}}</td><td class="date">{{.Notified}}</td><td>{{range .NatureOfControl}}<div>{{.}}</div>{{end}}</td><td>{{if .Current}}Current{{else}}Ceased {{.Ceased}}{{end}}</td><td>{{if .IdentityVerified}}Verified {{.IdentityVerifiedOn}}{{else}}<span class="badge warn">not verified</span>{{end}}</td></tr>
+<tr><td colspan="5" class="sub"><details><summary>Nature of control &amp; dates</summary><form method="post" action="/company/pscs/update" class="wide">
+ <input type="hidden" name="i" value="{{$i}}">
+ <label>Shares held<select name="shares"><option value="0">none</option>{{range $.Bands}}<option value="{{printf "%d" .}}"{{if eq . $p.Shares}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+ <label>Voting rights held<select name="voting"><option value="0">none</option>{{range $.Bands}}<option value="{{printf "%d" .}}"{{if eq . $p.Voting}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+ <label class="chk"><input type="checkbox" name="appoints" value="1"{{if .AppointsDirectors}} checked{{end}}> Right to appoint or remove directors</label>
+ <label class="chk"><input type="checkbox" name="influence" value="1"{{if .SignificantInfluence}} checked{{end}}> Significant influence or control</label>
+ <label>Identity verified on<input type="date" name="verified" value="{{if .IdentityVerified}}{{.IdentityVerifiedOn}}{{end}}"></label>
+ <label>Ceased on<input type="date" name="ceased" value="{{if not .Current}}{{.Ceased}}{{end}}"></label>
+ <button>Save</button></form></details></td></tr>{{end}}
+</table>
+<form method="post" action="/company/pscs/add" class="wide">
+ <label>Name<input name="name" placeholder="Person with significant control"></label>
+ <label>Notified on<input type="date" name="date" value="{{.Today}}"></label>
+ <label>Shares held<select name="shares"><option value="0">none</option>{{range .Bands}}<option value="{{printf "%d" .}}">{{.}}</option>{{end}}</select></label>
+ <label>Voting rights held<select name="voting"><option value="0">none</option>{{range .Bands}}<option value="{{printf "%d" .}}">{{.}}</option>{{end}}</select></label>
+ <label class="chk"><input type="checkbox" name="appoints" value="1"> Right to appoint or remove directors</label>
+ <label class="chk"><input type="checkbox" name="influence" value="1"> Significant influence or control</label>
+ <button>Register PSC</button></form>
+<p class="muted">A person who holds more than 25% of the shares or voting rights, can appoint or remove a majority of the directors, or otherwise has significant influence or control is a PSC. Every PSC must verify their identity with Companies House.</p></div>{{end}}
 
 
 {{define "page:company.import"}}<h1>Company · Import (CSV)</h1>
@@ -806,10 +869,7 @@
 {{else}}<p class="muted">Accounts could not be built for this period.</p>{{end}}{{end}}
 
 
-{{define "invoicedoc"}}<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Invoice {{.Doc.Ref}} — {{.Co.Name}}</title>
-<style>
+{{define "docstyle"}}<style>
  *{box-sizing:border-box}
  body{margin:0;background:#eef1f6;font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;color:#1b2733}
  .sheet{max-width:720px;margin:24px auto;background:#fff;border:1px solid #dbe3ec;border-radius:10px;padding:34px 40px;box-shadow:0 1px 3px rgba(20,40,80,.08)}
@@ -837,7 +897,13 @@
  .actions a{color:#2f66d0;text-decoration:none;margin-right:14px}
  button{padding:7px 13px;border:0;border-radius:6px;background:#2f66d0;color:#fff;font-size:13px;font-weight:600;cursor:pointer}
  @media print{body{background:#fff}.sheet{border:0;box-shadow:none;margin:0;max-width:100%}.actions{display:none}}
-</style></head>
+</style>{{end}}
+
+
+{{define "invoicedoc"}}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Invoice {{.Doc.Ref}} — {{.Co.Name}}</title>
+{{template "docstyle"}}</head>
 <body>
 <div class="sheet">
  <header>
@@ -864,4 +930,52 @@
  <p class="foot">Payment due to {{.Co.Name}}. This is a computer-generated invoice produced by a virtual accounting game — not a demand for payment from a real business.</p>
 </div>
 <div class="actions"><a href="/sales">← Back to Sales</a><button onclick="window.print()">Print / Save PDF</button></div>
+</body></html>{{end}}
+
+
+{{define "csdoc"}}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Confirmation statement — {{.Co.Name}}</title>
+{{template "docstyle"}}
+<style>
+ h3{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:#627d98;margin:20px 0 8px}
+ .kv{display:flex;font-size:13px;padding:3px 0}.kv span{width:220px;color:#627d98;flex:none}
+ .warn{color:#b34700}
+</style></head>
+<body>
+<div class="sheet">
+ <header>
+  <div><h1>{{.Co.Name}}</h1><p>Company no. {{.Co.Number}}<br>{{.Co.RegisteredOffice}}</p></div>
+  <div class="meta"><h2>CONFIRMATION STATEMENT</h2><p>Made up to <b>{{.StatementDate}}</b></p></div>
+ </header>
+ <p>The company confirms that the information held on the public register is correct as at the statement date, with the details below.</p>
+ <h3>Registered details</h3>
+ <div class="kv"><span>Company type</span>Private company limited by shares</div>
+ <div class="kv"><span>Registered office</span>{{.Co.RegisteredOffice}}</div>
+ <div class="kv"><span>Registered email address</span>{{if .Co.RegisteredEmail}}{{.Co.RegisteredEmail}}{{else}}<i class="warn">not set — every company must give one</i>{{end}}</div>
+ <div class="kv"><span>SIC code</span>{{.Co.SICCode}}</div>
+ <h3>Officers</h3>
+ <table class="doc"><tr><th>Name</th><th>Role</th><th>Appointed</th><th>Nationality</th><th>Occupation</th><th>Service address</th><th>Identity</th></tr>
+ {{range .Officers}}<tr><td>{{.Name}}</td><td>{{.Role}}</td><td>{{.Appointed}}</td><td>{{.Nationality}}</td><td>{{.Occupation}}</td><td>{{.ServiceAddress}}</td><td>{{if .IdentityVerified}}Verified {{.IdentityVerifiedOn}}{{else}}<span class="warn">Not verified</span>{{end}}</td></tr>{{end}}
+ </table>
+ <h3>People with significant control</h3>
+ {{if .PSCs}}<table class="doc"><tr><th>Name</th><th>Notified</th><th>Nature of control</th><th>Identity</th></tr>
+ {{range .PSCs}}<tr><td>{{.Name}}</td><td>{{.Notified}}</td><td>{{range .NatureOfControl}}{{.}}<br>{{end}}</td><td>{{if .IdentityVerified}}Verified {{.IdentityVerifiedOn}}{{else}}<span class="warn">Not verified</span>{{end}}</td></tr>{{end}}
+ </table>{{else}}<p>The company has no person with significant control.</p>{{end}}
+ <h3>Statement of capital</h3>
+ <table class="doc"><tr><th>Class of shares</th><th class="num">Number</th><th class="num">Nominal value</th><th class="num">Aggregate nominal value</th><th class="num">Paid up</th></tr>
+ <tr><td>Ordinary</td><td class="num">{{.TotalShares}}</td><td class="num">{{money .Nominal}}</td><td class="num">{{money .IssuedCapital}}</td><td class="num">{{money .IssuedCapital}}</td></tr>
+ </table>
+ <p>Prescribed particulars: each share carries one vote, an equal right to dividends and an equal right to a distribution of capital.</p>
+ <h3>Shareholders</h3>
+ <table class="doc"><tr><th>Name</th><th>Class</th><th class="num">Shares held</th></tr>
+ {{range .Members}}<tr><td>{{.Name}}</td><td>{{.Class}}</td><td class="num">{{.Shares}}</td></tr>{{end}}
+ </table>
+ <h3>Statements</h3>
+ <p>None of the company's shares were admitted to trading on a market during the review period.</p>
+ <p>The intended future activities of the company are lawful.</p>
+ {{if .Unverified}}<p class="warn">Identity verification is not recorded for: {{range $i, $n := .Unverified}}{{if $i}}, {{end}}{{$n}}{{end}}. Every director and person with significant control must verify their identity before the statement is delivered.</p>{{else}}<p>Every director and person with significant control has verified their identity with Companies House.</p>{{end}}
+ <p class="foot">Generated by a virtual accounting game from the company's registers. It is not a filing, and nothing is sent to Companies House.</p>
+</div>
+<div class="actions"><a href="/company">← Back to Company</a><button onclick="window.print()">Print / Save PDF</button></div>
 </body></html>{{end}}

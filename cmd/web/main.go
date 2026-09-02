@@ -239,14 +239,47 @@ type dividendRun struct {
 }
 
 // defaultRegister is the starter statutory register: one director who is also the
-// sole shareholder, holding 100 ordinary £1 shares.
+// sole shareholder, holding 100 ordinary £1 shares, and so the one person with
+// significant control.
 func defaultRegister(cur money.Currency, inc ledger.Date) register.Register {
 	nominal, _ := money.Parse(cur, "1.00")
 	return register.Register{
-		Officers: []register.Officer{{Name: "Alex Director", Role: register.Director, Appointed: inc}},
+		Officers: []register.Officer{{Name: "Alex Director", Role: register.Director, Appointed: inc, Nationality: "British", Occupation: "Director"}},
 		Members:  []register.Member{{Name: "Alex Director", Class: "Ordinary", Shares: 100, Since: inc}},
+		PSCs:     []register.PSC{{Name: "Alex Director", Notified: inc, Shares: register.AtLeast75, Voting: register.AtLeast75, AppointsDirectors: true}},
 		Nominal:  nominal,
 	}
+}
+
+// band parses a control band from a form field; out-of-range values mean none.
+func band(s string) register.ControlBand {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < int(register.NoControl) || n > int(register.AtLeast75) {
+		return register.NoControl
+	}
+	return register.ControlBand(n)
+}
+
+// officerDetails sets an officer's registrable details from the form. Name, role and
+// appointment date are fixed at appointment, so the form does not carry them.
+func officerDetails(o *register.Officer, r *http.Request) {
+	o.ServiceAddress = strings.TrimSpace(r.FormValue("address"))
+	o.DateOfBirth = parseDate(r.FormValue("dob"), ledger.Date{})
+	o.Nationality = strings.TrimSpace(r.FormValue("nationality"))
+	o.Occupation = strings.TrimSpace(r.FormValue("occupation"))
+	o.IdentityVerifiedOn = parseDate(r.FormValue("verified"), ledger.Date{})
+	o.Resigned = parseDate(r.FormValue("resigned"), ledger.Date{})
+}
+
+// pscDetails sets a person with significant control's nature of control and the
+// dates that go with it from the form.
+func pscDetails(p *register.PSC, r *http.Request) {
+	p.Shares = band(r.FormValue("shares"))
+	p.Voting = band(r.FormValue("voting"))
+	p.AppointsDirectors = r.FormValue("appoints") != ""
+	p.SignificantInfluence = r.FormValue("influence") != ""
+	p.IdentityVerifiedOn = parseDate(r.FormValue("verified"), ledger.Date{})
+	p.Ceased = parseDate(r.FormValue("ceased"), ledger.Date{})
 }
 
 func newApp(dataPath string) (*app, error) {
@@ -333,6 +366,22 @@ func (a *app) bal(code string) money.Money { v, _ := a.book.Balance(code); retur
 func (a *app) ref(prefix string) string { a.seq++; return fmt.Sprintf("%s-%03d", prefix, a.seq) }
 
 func (a *app) fy() company.FinancialYear { return a.co.YearContaining(a.today) }
+
+var months = []time.Month{time.January, time.February, time.March, time.April, time.May, time.June,
+	time.July, time.August, time.September, time.October, time.November, time.December}
+
+// keyDateOptions reports which optional obligations the books show: a payroll when
+// the company has employees or has paid salaries this year, and benefits in kind
+// when an employee has any.
+func (a *app) keyDateOptions() company.KeyDateOptions {
+	opts := company.KeyDateOptions{Payroll: len(a.employees) > 0 || !a.fyMovement(chart.Salaries).IsZero()}
+	for _, e := range a.employees {
+		if e.BIK.IsPositive() {
+			opts.Benefits = true
+		}
+	}
+	return opts
+}
 
 // signer is the director who approves the accounts — the first in-office director.
 func (a *app) signer() string {
@@ -822,6 +871,12 @@ type pageData struct {
 	Today         ledger.Date
 	YearEndDate   ledger.Date
 	ClosedThrough ledger.Date
+	KeyDates      []company.KeyDate // every filing and payment ahead, soonest first
+	NextDue       []company.KeyDate // the first few key dates, for the overview
+	Months        []time.Month
+
+	NextStatementDate ledger.Date // statement date of the next confirmation statement
+	NextStatementDue  ledger.Date // last day to deliver it
 
 	Bank, Cash, Debtors, Creditors, PAYE, CorpTaxDue, DirLoan money.Money
 	AccrualsBal, PrepaidBal                                   money.Money
@@ -849,6 +904,8 @@ type pageData struct {
 
 	Officers      []register.Officer
 	Members       []register.Member
+	PSCs          []register.PSC
+	Bands         []register.ControlBand
 	Nominal       money.Money
 	TotalShares   int
 	IssuedCapital money.Money
@@ -914,6 +971,13 @@ func (a *app) render(w http.ResponseWriter, page string) {
 		d.StudentLoanPlanNames = append(d.StudentLoanPlanNames, p.Name)
 	}
 	d.LastImport = a.lastImport
+	d.KeyDates = a.co.KeyDates(a.today, a.keyDateOptions())
+	d.NextDue = d.KeyDates
+	if len(d.NextDue) > 3 {
+		d.NextDue = d.NextDue[:3]
+	}
+	d.Months = months
+	d.NextStatementDate, d.NextStatementDue = a.co.NextStatement()
 	d.Banks, d.MainBank = a.banks, a.main()
 	for _, b := range a.banks {
 		if b.Currency != "" {
@@ -928,6 +992,7 @@ func (a *app) render(w http.ResponseWriter, page string) {
 		d.BankRows = append(d.BankRows, row)
 	}
 	d.Officers, d.Members, d.Nominal = a.reg.Officers, a.reg.Members, a.reg.Nominal
+	d.PSCs, d.Bands = a.reg.PSCs, register.Bands
 	d.TotalShares, d.IssuedCapital, d.LastDividend = a.reg.TotalShares(), a.reg.IssuedCapital(), a.lastDividend
 	d.Costs = a.costs
 	for _, c := range a.costs {
@@ -1077,8 +1142,13 @@ func (a *app) routes() *http.ServeMux {
 		a.co.Number = strings.TrimSpace(r.FormValue("number"))
 		a.co.SICCode = strings.TrimSpace(r.FormValue("sic"))
 		a.co.RegisteredOffice = strings.TrimSpace(r.FormValue("office"))
+		a.co.RegisteredEmail = strings.TrimSpace(r.FormValue("email"))
 		a.co.VATRegistered = r.FormValue("vatreg") != ""
 		a.co.VATNumber = strings.TrimSpace(r.FormValue("vatnumber"))
+		if m, err := strconv.Atoi(r.FormValue("vatquarter")); err == nil && m >= 0 && m <= 12 {
+			a.co.VATQuarterEndMonth = time.Month(m)
+		}
+		a.co.LastStatementDate = parseDate(r.FormValue("laststatement"), ledger.Date{})
 		a.co.Incorporated = parseDate(r.FormValue("incorporated"), a.co.Incorporated)
 		ye := parseDate(r.FormValue("yearend"), ledger.NewDate(a.today.Year, a.co.YearEndMonth, a.co.YearEndDay))
 		a.co.YearEndMonth, a.co.YearEndDay = ye.Month, ye.Day
@@ -1126,6 +1196,55 @@ func (a *app) routes() *http.ServeMux {
 		a.mu.Unlock()
 		http.Redirect(w, r, "/company/financial-year", http.StatusSeeOther)
 	})
+	mux.HandleFunc("/company/confirmation-statement", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		statementDate, _ := a.co.NextStatement()
+		if d := parseDate(r.URL.Query().Get("date"), ledger.Date{}); !d.IsZero() {
+			statementDate = d
+		}
+		data := struct {
+			Co            company.Company
+			StatementDate ledger.Date
+			Officers      []register.Officer
+			PSCs          []register.PSC
+			Members       []register.Member
+			TotalShares   int
+			Nominal       money.Money
+			IssuedCapital money.Money
+			Unverified    []string // directors and PSCs with no identity verification recorded
+		}{Co: a.co, StatementDate: statementDate, PSCs: a.reg.CurrentPSCs(), Members: a.reg.Members,
+			TotalShares: a.reg.TotalShares(), Nominal: a.reg.Nominal, IssuedCapital: a.reg.IssuedCapital()}
+		for _, o := range a.reg.Officers {
+			if o.InOffice() {
+				data.Officers = append(data.Officers, o)
+				if o.Role == register.Director && !o.IdentityVerified() {
+					data.Unverified = append(data.Unverified, o.Name)
+				}
+			}
+		}
+		for _, p := range data.PSCs {
+			if !p.IdentityVerified() {
+				data.Unverified = append(data.Unverified, p.Name)
+			}
+		}
+		if err := a.tmpl.ExecuteTemplate(w, "csdoc", data); err != nil {
+			log.Printf("csdoc: %v", err)
+		}
+	})
+	mux.HandleFunc("/company/statement/made", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			a.mu.Lock()
+			if d := parseDate(r.FormValue("date"), ledger.Date{}); d.IsZero() {
+				a.flash = "⚠ enter the date the statement is made up to"
+			} else {
+				a.co.LastStatementDate = d
+				a.flash = "✓ Confirmation statement recorded as made up to " + d.String()
+			}
+			a.mu.Unlock()
+		}
+		http.Redirect(w, r, "/company", http.StatusSeeOther)
+	})
 	mux.HandleFunc("/company/import/run", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Redirect(w, r, "/company/import", http.StatusSeeOther)
@@ -1169,6 +1288,52 @@ func (a *app) routes() *http.ServeMux {
 			} else {
 				a.reg.Officers = append(a.reg.Officers, register.Officer{Name: name, Role: role, Appointed: parseDate(r.FormValue("date"), a.today)})
 				a.flash = "✓ Appointed " + name + " as " + string(role)
+			}
+		}
+		http.Redirect(w, r, "/company/people", http.StatusSeeOther)
+	})
+	mux.HandleFunc("/company/officers/update", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if r.Method == http.MethodPost {
+			if i, err := strconv.Atoi(r.FormValue("i")); err == nil && i >= 0 && i < len(a.reg.Officers) {
+				officerDetails(&a.reg.Officers[i], r)
+				a.flash = "✓ Updated " + a.reg.Officers[i].Name
+			} else {
+				a.flash = "⚠ unknown officer"
+			}
+		}
+		http.Redirect(w, r, "/company/people", http.StatusSeeOther)
+	})
+	mux.HandleFunc("/company/pscs/add", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if r.Method == http.MethodPost {
+			name := strings.TrimSpace(r.FormValue("name"))
+			if name == "" {
+				a.flash = "⚠ enter the person's name"
+			} else {
+				p := register.PSC{Name: name, Notified: parseDate(r.FormValue("date"), a.today)}
+				pscDetails(&p, r)
+				if len(p.NatureOfControl()) == 0 {
+					a.flash = "⚠ choose at least one nature of control"
+				} else {
+					a.reg.PSCs = append(a.reg.PSCs, p)
+					a.flash = "✓ Registered " + name + " as a person with significant control"
+				}
+			}
+		}
+		http.Redirect(w, r, "/company/people", http.StatusSeeOther)
+	})
+	mux.HandleFunc("/company/pscs/update", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if r.Method == http.MethodPost {
+			if i, err := strconv.Atoi(r.FormValue("i")); err == nil && i >= 0 && i < len(a.reg.PSCs) {
+				pscDetails(&a.reg.PSCs[i], r)
+				a.flash = "✓ Updated " + a.reg.PSCs[i].Name
+			} else {
+				a.flash = "⚠ unknown person with significant control"
 			}
 		}
 		http.Redirect(w, r, "/company/people", http.StatusSeeOther)
