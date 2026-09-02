@@ -60,6 +60,7 @@ type snapshot struct {
 	StmtLines      []*stmtLine
 	Employees      []*employee
 	PayrollRuns    []payrollRun
+	Dividends      []dividendRun
 	Assets         []*assetHolding
 	InvoiceDocs    []*invoiceDoc
 	Approvals      []accountsApproval
@@ -79,6 +80,7 @@ func (a *app) buildSnapshot() snapshot {
 		FXBalances:     a.fxBalances,
 		Approvals:      a.approvals,
 		PayrollRuns:    a.runs,
+		Dividends:      a.dividends,
 	}
 	for _, ref := range a.invoiceOrder {
 		if d, ok := a.invoiceDocs[ref]; ok {
@@ -186,6 +188,7 @@ func (a *app) restore(s *snapshot) error {
 	a.stmtLines = s.StmtLines
 	a.approvals = s.Approvals
 	a.runs = s.PayrollRuns
+	a.dividends = s.Dividends
 	a.book = book
 
 	a.invoiceDocs = map[string]*invoiceDoc{}

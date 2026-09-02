@@ -243,8 +243,8 @@ type app struct {
 	entries        []entry
 	seq            int
 	flash          string
-	runs           []payrollRun // every salary assessed, for payslips and P60s
-	lastDividend   *dividendRun
+	runs           []payrollRun       // every salary assessed, for payslips and P60s
+	dividends      []dividendRun      // every dividend declared, for vouchers and minutes
 	approvals      []accountsApproval // one per financial year whose accounts the board approved
 	closedThrough  ledger.Date        // periods on/before this date are closed (locked)
 	lastImport     *importReport
@@ -278,13 +278,21 @@ type accountsLine struct {
 	Deduct, Total  bool
 }
 
-// dividendRun is the most recent dividend declaration, kept for the voucher display.
+// dividendRun is one dividend declaration, kept for the vouchers and the board
+// minute. Available is the distributable reserves the board relied on.
 type dividendRun struct {
-	Ref      string
-	Date     ledger.Date
-	Total    money.Money
-	PerShare string
-	Awards   []register.Award
+	Ref       string
+	Date      ledger.Date
+	Total     money.Money
+	PerShare  string
+	Available money.Money
+	Awards    []register.Award
+}
+
+// dividendView is one declared dividend as the Dividends page lists it.
+type dividendView struct {
+	Index int
+	Run   dividendRun
 }
 
 // defaultRegister is the starter statutory register: one director who is also the
@@ -402,7 +410,7 @@ func (a *app) clearBooks() {
 	a.invoiceDocs, a.invoiceOrder, a.costs, a.stmtLines = map[string]*invoiceDoc{}, nil, nil, nil
 	a.assets, a.employees = nil, nil
 	a.banks, a.mainBank = defaultBanks(), chart.Bank
-	a.entries, a.seq, a.runs, a.lastDividend = nil, 0, nil, nil
+	a.entries, a.seq, a.runs, a.dividends = nil, 0, nil, nil
 	a.approvals = nil
 	a.closedThrough = ledger.Date{}
 	a.fxBalances, a.pendingStmt, a.lastImport = nil, nil, nil
@@ -1093,6 +1101,7 @@ type pageData struct {
 	TotalShares   int
 	IssuedCapital money.Money
 	LastDividend  *dividendRun
+	Dividends     []dividendView // declared dividends, latest first
 
 	Costs            []*costRecord // all recorded costs, for recharge reconciliation
 	RecoverableCosts []*costRecord // costs not yet recharged, offered on the invoice form
@@ -1185,7 +1194,13 @@ func (a *app) render(w http.ResponseWriter, page string) {
 	}
 	d.Officers, d.Members, d.Nominal = a.reg.Officers, a.reg.Members, a.reg.Nominal
 	d.PSCs, d.Bands = a.reg.PSCs, register.Bands
-	d.TotalShares, d.IssuedCapital, d.LastDividend = a.reg.TotalShares(), a.reg.IssuedCapital(), a.lastDividend
+	d.TotalShares, d.IssuedCapital = a.reg.TotalShares(), a.reg.IssuedCapital()
+	for i := len(a.dividends) - 1; i >= 0; i-- {
+		d.Dividends = append(d.Dividends, dividendView{Index: i, Run: a.dividends[i]})
+	}
+	if len(a.dividends) > 0 {
+		d.LastDividend = &a.dividends[len(a.dividends)-1]
+	}
 	d.Costs = a.costs
 	for _, c := range a.costs {
 		if !c.Recharged {
@@ -1876,6 +1891,10 @@ func (a *app) routes() *http.ServeMux {
 		if err != nil {
 			return nil, "", err
 		}
+		when := a.date(r)
+		if a.inClosedPeriod(when) {
+			return nil, "", fmt.Errorf("%s is in a closed period — reopen or use a later date", when)
+		}
 		dec, err := dividends.Check(a.book, a.fy().End, m)
 		if err != nil {
 			return nil, "", err
@@ -1888,9 +1907,59 @@ func (a *app) routes() *http.ServeMux {
 			return nil, "", err
 		}
 		ref := a.ref("DIV")
-		a.lastDividend = &dividendRun{Ref: ref, Date: a.date(r), Total: m, PerShare: a.reg.PerShareLabel(m), Awards: awards}
-		return payyourself.DeclareDividend{Date: a.date(r), Ref: ref, Amount: m}, "Dividend declared and allocated to shareholders", nil
+		a.dividends = append(a.dividends, dividendRun{Ref: ref, Date: when, Total: m, PerShare: a.reg.PerShareLabel(m), Available: dec.Available, Awards: awards})
+		return payyourself.DeclareDividend{Date: when, Ref: ref, Amount: m}, "Dividend declared and allocated to shareholders", nil
 	}))
+	mux.HandleFunc("/pay-yourself/dividends/voucher", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		i, err := strconv.Atoi(r.URL.Query().Get("i"))
+		if err != nil || i < 0 || i >= len(a.dividends) {
+			http.NotFound(w, r)
+			return
+		}
+		run := a.dividends[i]
+		member := strings.TrimSpace(r.URL.Query().Get("member"))
+		var award *register.Award
+		for j := range run.Awards {
+			if run.Awards[j].Member.Name == member {
+				award = &run.Awards[j]
+			}
+		}
+		if award == nil {
+			http.NotFound(w, r)
+			return
+		}
+		data := struct {
+			Co     company.Company
+			Run    dividendRun
+			Award  register.Award
+			Signer string
+			FYEnd  ledger.Date
+		}{a.co, run, *award, a.signer(), a.co.YearContaining(run.Date).End}
+		if err := a.tmpl.ExecuteTemplate(w, "voucherdoc", data); err != nil {
+			log.Printf("voucherdoc: %v", err)
+		}
+	})
+	mux.HandleFunc("/pay-yourself/dividends/minute", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		i, err := strconv.Atoi(r.URL.Query().Get("i"))
+		if err != nil || i < 0 || i >= len(a.dividends) {
+			http.NotFound(w, r)
+			return
+		}
+		run := a.dividends[i]
+		data := struct {
+			Co        company.Company
+			Run       dividendRun
+			Directors []register.Officer
+			FYEnd     ledger.Date
+		}{a.co, run, a.reg.Directors(), a.co.YearContaining(run.Date).End}
+		if err := a.tmpl.ExecuteTemplate(w, "minutedoc", data); err != nil {
+			log.Printf("minutedoc: %v", err)
+		}
+	})
 	mux.HandleFunc("/pay-yourself/dividends/pay", a.run("pay-yourself", "/pay-yourself/dividends", func(r *http.Request) (themes.Operation, string, error) {
 		m, err := a.amount(r)
 		if err != nil {
@@ -2000,6 +2069,27 @@ func (a *app) routes() *http.ServeMux {
 		}
 		return companytax.Provision{Date: a.date(r), Ref: a.ref("CT"), Amount: delta}, fmt.Sprintf("Provided %s for corporation tax", fmtMoney(delta)), nil
 	}))
+	mux.HandleFunc("/company-tax/vat/document", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if !a.co.VATRegistered {
+			http.NotFound(w, r)
+			return
+		}
+		vr := a.vatReturn()
+		if r.URL.Query().Get("download") == "1" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"vat-return-%s.html\"", vr.To))
+		}
+		data := struct {
+			Co     company.Company
+			Return vatreturn.Return
+			Today  ledger.Date
+		}{a.co, vr, a.today}
+		if err := a.tmpl.ExecuteTemplate(w, "vatdoc", data); err != nil {
+			log.Printf("vatdoc: %v", err)
+		}
+	})
 	mux.HandleFunc("/company-tax/pay", a.run("company-tax", "/company-tax", func(r *http.Request) (themes.Operation, string, error) {
 		m, err := a.amount(r)
 		if err != nil {
