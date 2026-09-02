@@ -15,20 +15,24 @@ import (
 
 // Company is the reporting entity.
 type Company struct {
-	Name             string
-	Number           string // Companies House registered number
-	SICCode          string // Standard Industrial Classification code
-	RegisteredOffice string
-	Incorporated     ledger.Date
-	YearEndDay       int        // accounting reference date — day
-	YearEndMonth     time.Month // accounting reference date — month
-	Currency         money.Currency
-	VATRegistered    bool   // whether the company charges and reclaims VAT
-	VATNumber        string // VAT registration number, when registered
+	Name               string
+	Number             string // Companies House registered number
+	SICCode            string // Standard Industrial Classification code
+	RegisteredOffice   string
+	RegisteredEmail    string // registered email address held at Companies House
+	Incorporated       ledger.Date
+	YearEndDay         int        // accounting reference date — day
+	YearEndMonth       time.Month // accounting reference date — month
+	Currency           money.Currency
+	VATRegistered      bool        // whether the company charges and reclaims VAT
+	VATNumber          string      // VAT registration number, when registered
+	VATQuarterEndMonth time.Month  // a month a VAT quarter ends in; zero when not set
+	LastStatementDate  ledger.Date // statement date of the last confirmation statement made; zero when none
 }
 
 // FinancialYear is one accounting period. The first runs from incorporation to the
-// first year-end after it; each subsequent one is the following twelve months.
+// first year-end more than six months after it; each subsequent one is the
+// following twelve months.
 type FinancialYear struct {
 	Number int
 	Start  ledger.Date
@@ -53,28 +57,38 @@ func (c Company) yearEnd(year int) ledger.Date {
 	return ledger.NewDate(year, c.YearEndMonth, c.YearEndDay)
 }
 
-// firstYearEnd is the first accounting reference date strictly after incorporation.
+// firstYearEnd is the first accounting reference date more than six months after
+// incorporation. The Companies Act sets the first accounting reference period at
+// more than six months and at most eighteen months.
 func (c Company) firstYearEnd() ledger.Date {
+	sixMonths := toTime(c.Incorporated).AddDate(0, 6, 0)
 	ye := c.yearEnd(c.Incorporated.Year)
-	if !toTime(c.Incorporated).Before(toTime(ye)) { // incorporated on/after that year-end
-		ye = c.yearEnd(c.Incorporated.Year + 1)
+	for !sixMonths.Before(toTime(ye)) {
+		ye = c.yearEnd(ye.Year + 1)
 	}
 	return ye
 }
 
-// YearContaining returns the financial year that the given date falls in.
-func (c Company) YearContaining(on ledger.Date) FinancialYear {
+// Year returns financial year n, counted from 1 at incorporation.
+func (c Company) Year(n int) FinancialYear {
 	end := c.firstYearEnd()
-	num := 1
-	for toTime(end).Before(toTime(on)) {
+	for i := 1; i < n; i++ {
 		end = c.yearEnd(end.Year + 1)
-		num++
 	}
 	start := c.Incorporated
-	if num > 1 {
+	if n > 1 {
 		start = fromTime(toTime(c.yearEnd(end.Year-1)).AddDate(0, 0, 1)) // day after the previous year-end
 	}
-	return FinancialYear{Number: num, Start: start, End: end}
+	return FinancialYear{Number: n, Start: start, End: end}
+}
+
+// YearContaining returns the financial year that the given date falls in.
+func (c Company) YearContaining(on ledger.Date) FinancialYear {
+	fy := c.Year(1)
+	for toTime(fy.End).Before(toTime(on)) {
+		fy = c.Year(fy.Number + 1)
+	}
+	return fy
 }
 
 // NextYearStart returns the first day of the financial year after the one
@@ -86,15 +100,17 @@ func (c Company) NextYearStart(on ledger.Date) ledger.Date {
 // Default returns a starter company for a fresh game — a placeholder to be edited.
 func Default() Company {
 	return Company{
-		Name:             "Your Company Ltd",
-		Number:           "00000000",
-		SICCode:          "62012",
-		RegisteredOffice: "1 Example Street, London, EC1A 1AA",
-		Incorporated:     ledger.NewDate(2026, time.April, 1),
-		YearEndDay:       31,
-		YearEndMonth:     time.March,
-		Currency:         money.GBP,
-		VATRegistered:    true,
-		VATNumber:        "GB123456789",
+		Name:               "Your Company Ltd",
+		Number:             "00000000",
+		SICCode:            "62012",
+		RegisteredOffice:   "1 Example Street, London, EC1A 1AA",
+		RegisteredEmail:    "accounts@example.com",
+		Incorporated:       ledger.NewDate(2026, time.April, 1),
+		YearEndDay:         31,
+		YearEndMonth:       time.March,
+		Currency:           money.GBP,
+		VATRegistered:      true,
+		VATNumber:          "GB123456789",
+		VATQuarterEndMonth: time.March,
 	}
 }

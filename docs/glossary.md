@@ -15,6 +15,11 @@ Has a code, a name, and a *type*. In code: `ledger.Account`.
 **Accounting equation** — `Assets = Liabilities + Equity`. The balance sheet always
 obeys it; double-entry is what keeps it true.
 
+**Accounting reference date (ARD)** — The day and month a company's financial year
+ends. The first accounting reference period runs from incorporation for more than six
+months and at most eighteen months; each later one is twelve months. In code:
+`company.Company.YearEndDay` / `YearEndMonth`.
+
 **Accrual basis / cash basis** — Accrual recognises income and costs when *earned or
 incurred*; cash basis when money actually *moves*. UK companies generally use accrual.
 (Not yet modelled — deferred.)
@@ -40,6 +45,11 @@ every posting is expressed in. Package `chart`.
 
 **Companies House** — The UK registrar of companies. Holds the *public* company record;
 receives a (currently reduced) set of accounts.
+
+**Confirmation statement** — The annual filing that confirms the company's registered
+details at Companies House: officers, people with significant control, shareholders and
+share capital, registered office and email, SIC code. Due within fourteen days after the
+end of each *review period*. In code: `company.Company.NextStatement`.
 
 **Corporation tax** — Tax on a company's taxable profit, computed from accounting profit
 with adjustments. Filed to HMRC on the **CT600** return.
@@ -101,6 +111,9 @@ accounts filing from April 2028. (Planned — a `filing` concern.)
 **Journal (journal entry)** — A balanced set of postings recorded on a date; the unit of
 recording. Immutable once posted. In code: `ledger.Journal`.
 
+**Key date** — One filing or payment and the date it is due, derived from the year end,
+the date of incorporation and the last *statement date*. In code: `company.KeyDate`.
+
 **Ledger (general ledger)** — The complete books: the chart of accounts plus every posted
 journal, from which balances and the trial balance are derived. In code: `ledger.Book`.
 
@@ -132,12 +145,19 @@ The link between the P&L and the balance sheet.
 undo it, used to correct posted (immutable) journals without altering them. In code:
 `ledger.Journal.Reverse`.
 
+**Review period** — The twelve months a confirmation statement covers. The first begins
+on incorporation; each later one begins the day after the last *statement date*. In
+code: `company.Company.ReviewPeriod`.
+
 **Round half up (round half away from zero)** — The UK money-rounding convention and the
 project default: exactly-half cases round away from zero (£1.005 → £1.01, −£1.005 →
 −£1.01). Matches HMRC's rule; contrast *banker's rounding*.
 
 **Small company** — The company size band above micro (post-6 April 2025: turnover ≤ £15m,
 balance sheet ≤ £7.5m, ≤ 50 employees — meet 2 of 3). Uses FRS 102 Section 1A.
+
+**Statement date** — The date a confirmation statement is made up to: the last day of
+its *review period*.
 
 **Statutory accounts** — The annual accounts a company is legally required to prepare under
 the Companies Act, in the format its size band and standard prescribe.

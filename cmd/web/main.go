@@ -334,6 +334,22 @@ func (a *app) ref(prefix string) string { a.seq++; return fmt.Sprintf("%s-%03d",
 
 func (a *app) fy() company.FinancialYear { return a.co.YearContaining(a.today) }
 
+var months = []time.Month{time.January, time.February, time.March, time.April, time.May, time.June,
+	time.July, time.August, time.September, time.October, time.November, time.December}
+
+// keyDateOptions reports which optional obligations the books show: a payroll when
+// the company has employees or has paid salaries this year, and benefits in kind
+// when an employee has any.
+func (a *app) keyDateOptions() company.KeyDateOptions {
+	opts := company.KeyDateOptions{Payroll: len(a.employees) > 0 || !a.fyMovement(chart.Salaries).IsZero()}
+	for _, e := range a.employees {
+		if e.BIK.IsPositive() {
+			opts.Benefits = true
+		}
+	}
+	return opts
+}
+
 // signer is the director who approves the accounts — the first in-office director.
 func (a *app) signer() string {
 	if d := a.reg.Directors(); len(d) > 0 {
@@ -822,6 +838,9 @@ type pageData struct {
 	Today         ledger.Date
 	YearEndDate   ledger.Date
 	ClosedThrough ledger.Date
+	KeyDates      []company.KeyDate // every filing and payment ahead, soonest first
+	NextDue       []company.KeyDate // the first few key dates, for the overview
+	Months        []time.Month
 
 	Bank, Cash, Debtors, Creditors, PAYE, CorpTaxDue, DirLoan money.Money
 	AccrualsBal, PrepaidBal                                   money.Money
@@ -914,6 +933,12 @@ func (a *app) render(w http.ResponseWriter, page string) {
 		d.StudentLoanPlanNames = append(d.StudentLoanPlanNames, p.Name)
 	}
 	d.LastImport = a.lastImport
+	d.KeyDates = a.co.KeyDates(a.today, a.keyDateOptions())
+	d.NextDue = d.KeyDates
+	if len(d.NextDue) > 3 {
+		d.NextDue = d.NextDue[:3]
+	}
+	d.Months = months
 	d.Banks, d.MainBank = a.banks, a.main()
 	for _, b := range a.banks {
 		if b.Currency != "" {
@@ -1077,8 +1102,13 @@ func (a *app) routes() *http.ServeMux {
 		a.co.Number = strings.TrimSpace(r.FormValue("number"))
 		a.co.SICCode = strings.TrimSpace(r.FormValue("sic"))
 		a.co.RegisteredOffice = strings.TrimSpace(r.FormValue("office"))
+		a.co.RegisteredEmail = strings.TrimSpace(r.FormValue("email"))
 		a.co.VATRegistered = r.FormValue("vatreg") != ""
 		a.co.VATNumber = strings.TrimSpace(r.FormValue("vatnumber"))
+		if m, err := strconv.Atoi(r.FormValue("vatquarter")); err == nil && m >= 0 && m <= 12 {
+			a.co.VATQuarterEndMonth = time.Month(m)
+		}
+		a.co.LastStatementDate = parseDate(r.FormValue("laststatement"), ledger.Date{})
 		a.co.Incorporated = parseDate(r.FormValue("incorporated"), a.co.Incorporated)
 		ye := parseDate(r.FormValue("yearend"), ledger.NewDate(a.today.Year, a.co.YearEndMonth, a.co.YearEndDay))
 		a.co.YearEndMonth, a.co.YearEndDay = ye.Month, ye.Day

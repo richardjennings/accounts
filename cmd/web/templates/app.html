@@ -68,6 +68,8 @@
  form.inl input,form.inl select{margin-top:0}
  form.inl label{margin-bottom:0}
  .badge{display:inline-block;background:#e6f0ff;color:#2f66d0;border-radius:4px;padding:1px 8px;font-size:11px;font-weight:600}
+ .badge.warn{background:#fdecdc;color:#b34700}
+ tr.over td{color:#b34700}
  button.link{background:none;color:#2f66d0;padding:0;font-weight:600}
  button.link:hover{background:none;text-decoration:underline}
  .stmt form{display:inline}
@@ -209,6 +211,11 @@
  <div class="kpi"><span>VAT owed</span><b>{{money .VATOwed}}</b></div>
  <div class="kpi"><span>Director's loan</span><b>{{money .DirLoan}}</b></div>
 </div>
+{{if .NextDue}}<div class="card"><h3>Next due</h3>
+<table class="stmt"><tr><th>Due</th><th>What</th><th>Covers</th><th>To</th></tr>
+{{range .NextDue}}<tr{{if .Overdue}} class="over"{{end}}><td class="date">{{.Due}}{{if .Overdue}} <span class="badge warn">overdue</span>{{end}}</td><td>{{.What}}</td><td class="muted">{{.Detail}}</td><td>{{.Recipient}}</td></tr>{{end}}
+</table>
+<p class="muted">The full list is under <a href="/company">Company · Details</a>.</p></div>{{end}}
 {{if .AllJournals}}<div class="card"><h3>Recent transactions</h3>
 <table class="txns"><tr><th>Date</th><th>Ref</th><th>Details</th><th>Postings</th></tr>
 {{range .AllJournals}}<tr><td class="date">{{.Date}}</td><td class="ref">{{.Ref}}</td><td>{{.Narrative}}</td><td class="post">{{range .Postings}}<span class="leg">{{.Side}} {{.Account}} {{.Amount}}</span>{{end}}</td></tr>{{end}}
@@ -223,18 +230,26 @@
   <label>Company number<input name="number" value="{{.Co.Number}}"></label>
   <label>SIC code (nature of business)<input name="sic" value="{{.Co.SICCode}}"></label>
   <label>Registered office<input name="office" value="{{.Co.RegisteredOffice}}"></label>
+  <label>Registered email address<input name="email" value="{{.Co.RegisteredEmail}}" placeholder="accounts@example.com"></label>
   <label>Date of incorporation<input type="date" name="incorporated" value="{{.Co.Incorporated}}"></label>
   <label>Financial year-end (day &amp; month)<input type="date" name="yearend" value="{{.YearEndDate}}"></label>
+  <label>Last confirmation statement date<input type="date" name="laststatement" value="{{if not .Co.LastStatementDate.IsZero}}{{.Co.LastStatementDate}}{{end}}"></label>
   <label class="chk"><input type="checkbox" name="vatreg" value="1"{{if .Co.VATRegistered}} checked{{end}}> VAT registered</label>
   <label>VAT number<input name="vatnumber" value="{{.Co.VATNumber}}" placeholder="GB123456789"></label>
+  <label>VAT quarter end month<select name="vatquarter"><option value="0">— not set —</option>{{range .Months}}<option value="{{printf "%d" .}}"{{if eq . $.Co.VATQuarterEndMonth}} selected{{end}}>{{.}}</option>{{end}}</select></label>
   <button>Save details</button></form>
-  <p class="muted">Base currency {{.Co.Currency.Code}}. Only the day and month of the year-end are used (it is the accounting reference date). Uncheck <b>VAT registered</b> to hide VAT from sales and expenses — a company below the registration threshold does not charge it.</p></div>
+  <p class="muted">Base currency {{.Co.Currency.Code}}. Only the day and month of the year-end are used (it is the accounting reference date). Uncheck <b>VAT registered</b> to hide VAT from sales and expenses — a company below the registration threshold does not charge it. The last confirmation statement date is the date the statement was made up to; leave it empty if none has been made yet.</p></div>
  <div class="card snap"><h3>Current status</h3>
   <div class="kv"><span>Financial year</span><b>FY{{.FY.Number}}</b></div>
   <div class="kv"><span>Period</span><b>{{.FY.Start}} → {{.FY.End}}</b></div>
   <div class="kv"><span>Year-end</span><b>{{.Co.YearEndLabel}}</b></div>
   <div class="kv tot"><span>Today</span><b>{{.Today}}</b></div></div>
-</div>{{end}}
+</div>
+<div class="card"><h3>Key dates</h3>
+<table class="stmt"><tr><th>Due</th><th>What</th><th>Covers</th><th>To</th></tr>
+{{range .KeyDates}}<tr{{if .Overdue}} class="over"{{end}}><td class="date">{{.Due}}{{if .Overdue}} <span class="badge warn">overdue</span>{{end}}</td><td>{{.What}}</td><td class="muted">{{.Detail}}</td><td>{{.Recipient}}</td></tr>{{end}}
+</table>
+<p class="muted">As at today ({{.Today}}), derived from the year-end, the date of incorporation and the last confirmation statement date. Annual accounts are due nine months after the year-end; corporation tax nine months and one day after it; the CT600 twelve months after it; the confirmation statement fourteen days after its twelve-month review period ends.{{if and .Co.VATRegistered (not .Co.VATQuarterEndMonth)}} Set the VAT quarter end month above to see VAT return dates.{{end}} PAYE dates appear once the company runs a payroll. Nothing here is filed for you — the game generates documents but never sends them.</p></div>{{end}}
 
 
 {{define "page:company.year"}}<h1>Company · Financial year</h1>
