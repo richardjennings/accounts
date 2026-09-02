@@ -1,8 +1,10 @@
 // Package payroll computes PAYE income tax and National Insurance on a director's
 // salary. Everything rate-related is configuration: a RateTable holds every
 // threshold and percentage as data, so a new tax year — or Scotland's bands, or a
-// hand-tweaked scenario — is a different table, not different code. The bundled
-// Year2025_26 table is verified against HMRC's published rates and thresholds.
+// hand-tweaked scenario — is a different table, not different code. A TaxYear
+// bundles the rate table, the student loan plans and the pension band for one
+// year; the bundled years are verified against HMRC's published rates and
+// thresholds.
 //
 // It uses the directors' annual earnings period (an owner-director is assessed on
 // total earnings for the year). PAYE tax bands apply to taxable income after the
@@ -14,6 +16,7 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/richardjennings/accounts/money"
 	"github.com/richardjennings/decimal"
@@ -36,6 +39,7 @@ type RateTable struct {
 	Name                string
 	PersonalAllowance   money.Money
 	Bands               []Band          // income-tax bands on taxable income
+	LowerEarningsLimit  money.Money     // earnings from which NI is credited, though none is paid
 	PrimaryThreshold    money.Money     // employee NI lower threshold
 	UpperEarningsLimit  money.Money     // employee NI upper limit
 	EmployeeRate        decimal.Decimal // employee NI between PT and UEL
@@ -55,6 +59,28 @@ var Year2025_26 = RateTable{
 		{UpTo: gbp("125140.00"), Rate: dec("0.40")},      // higher
 		{UpTo: money.Zero(money.GBP), Rate: dec("0.45")}, // additional (open-ended)
 	},
+	LowerEarningsLimit:  gbp("6500.00"),
+	PrimaryThreshold:    gbp("12570.00"),
+	UpperEarningsLimit:  gbp("50270.00"),
+	EmployeeRate:        dec("0.08"),
+	EmployeeUpperRate:   dec("0.02"),
+	SecondaryThreshold:  gbp("5000.00"),
+	EmployerRate:        dec("0.15"),
+	EmploymentAllowance: gbp("10500.00"),
+}
+
+// Year2026_27 is the England, Wales & Northern Ireland table for 2026/27, verified
+// against HMRC's "Rates and thresholds for employers 2026 to 2027". Every rate and
+// threshold is frozen at the 2025/26 figure except the lower earnings limit.
+var Year2026_27 = RateTable{
+	Name:              "2026/27 (England, Wales & NI)",
+	PersonalAllowance: gbp("12570.00"),
+	Bands: []Band{
+		{UpTo: gbp("37700.00"), Rate: dec("0.20")},       // basic
+		{UpTo: gbp("125140.00"), Rate: dec("0.40")},      // higher
+		{UpTo: money.Zero(money.GBP), Rate: dec("0.45")}, // additional (open-ended)
+	},
+	LowerEarningsLimit:  gbp("6708.00"),
 	PrimaryThreshold:    gbp("12570.00"),
 	UpperEarningsLimit:  gbp("50270.00"),
 	EmployeeRate:        dec("0.08"),
@@ -65,23 +91,43 @@ var Year2025_26 = RateTable{
 }
 
 // StudentLoanPlan is a student/postgraduate loan repayment plan: a percentage of
-// earnings above an annual threshold. Verified against HMRC 2025/26 figures.
+// earnings above an annual threshold.
 type StudentLoanPlan struct {
 	Name      string
 	Threshold money.Money
 	Rate      decimal.Decimal
 }
 
-var (
-	Plan1    = StudentLoanPlan{"Plan 1", gbp("26065.00"), dec("0.09")}
-	Plan2    = StudentLoanPlan{"Plan 2", gbp("28470.00"), dec("0.09")}
-	Plan4    = StudentLoanPlan{"Plan 4", gbp("32745.00"), dec("0.09")}
-	Plan5    = StudentLoanPlan{"Plan 5", gbp("25000.00"), dec("0.09")}
-	Postgrad = StudentLoanPlan{"Postgraduate", gbp("21000.00"), dec("0.06")}
+// Student loan plan names, the same in every tax year.
+const (
+	Plan1Name    = "Plan 1"
+	Plan2Name    = "Plan 2"
+	Plan4Name    = "Plan 4"
+	Plan5Name    = "Plan 5"
+	PostgradName = "Postgraduate"
 )
 
-// StudentLoanPlans lists the selectable plans.
-var StudentLoanPlans = []StudentLoanPlan{Plan1, Plan2, Plan4, Plan5, Postgrad}
+// StudentLoans2025_26 holds the 2025/26 plan thresholds, verified against HMRC.
+var StudentLoans2025_26 = []StudentLoanPlan{
+	{Plan1Name, gbp("26065.00"), dec("0.09")},
+	{Plan2Name, gbp("28470.00"), dec("0.09")},
+	{Plan4Name, gbp("32745.00"), dec("0.09")},
+	{Plan5Name, gbp("25000.00"), dec("0.09")},
+	{PostgradName, gbp("21000.00"), dec("0.06")},
+}
+
+// StudentLoans2026_27 holds the 2026/27 plan thresholds, verified against HMRC's
+// "Rates and thresholds for employers 2026 to 2027".
+var StudentLoans2026_27 = []StudentLoanPlan{
+	{Plan1Name, gbp("26900.00"), dec("0.09")},
+	{Plan2Name, gbp("29385.00"), dec("0.09")},
+	{Plan4Name, gbp("33795.00"), dec("0.09")},
+	{Plan5Name, gbp("25000.00"), dec("0.09")},
+	{PostgradName, gbp("21000.00"), dec("0.06")},
+}
+
+// StudentLoanPlans lists the selectable plans at the latest bundled year's thresholds.
+var StudentLoanPlans = StudentLoans2026_27
 
 // AutoEnrolment is a workplace pension's contribution rates and the band of
 // qualifying earnings they apply to. The bundled default is the UK statutory
@@ -102,6 +148,63 @@ var AutoEnrol2025_26 = AutoEnrolment{
 	EmployerRate: dec("0.03"),
 }
 
+// AutoEnrol2026_27 is the statutory minimum for 2026/27, verified against the
+// DWP's review of the earnings trigger and qualifying earnings band for 2026/27:
+// the band stays at £6,240 to £50,270.
+var AutoEnrol2026_27 = AutoEnrolment{
+	LowerLimit:   gbp("6240.00"),
+	UpperLimit:   gbp("50270.00"),
+	EmployeeRate: dec("0.05"),
+	EmployerRate: dec("0.03"),
+}
+
+// TaxYear bundles the tables for one tax year, which runs from 6 April.
+type TaxYear struct {
+	Start        int // the calendar year the tax year starts in: 2026 for 2026/27
+	Rates        RateTable
+	StudentLoans []StudentLoanPlan
+	Pension      AutoEnrolment
+}
+
+// TaxYears lists the bundled tax years, earliest first.
+var TaxYears = []TaxYear{
+	{Start: 2025, Rates: Year2025_26, StudentLoans: StudentLoans2025_26, Pension: AutoEnrol2025_26},
+	{Start: 2026, Rates: Year2026_27, StudentLoans: StudentLoans2026_27, Pension: AutoEnrol2026_27},
+}
+
+// Latest is the most recent bundled tax year, the default when Compute is given
+// no table.
+func Latest() TaxYear { return TaxYears[len(TaxYears)-1] }
+
+// TaxYearOn returns the tax year a date falls in: the latest bundled year that
+// starts on or before it. A date before the first bundled year gets that year.
+func TaxYearOn(year int, month time.Month, day int) TaxYear {
+	start := year
+	if month < time.April || (month == time.April && day < 6) {
+		start--
+	}
+	ty := TaxYears[0]
+	for _, t := range TaxYears {
+		if t.Start <= start {
+			ty = t
+		}
+	}
+	return ty
+}
+
+// Label renders the tax year as HMRC writes it, e.g. "2026 to 2027".
+func (t TaxYear) Label() string { return strconv.Itoa(t.Start) + " to " + strconv.Itoa(t.Start+1) }
+
+// Plan returns the tax year's student loan plan by name, or the zero value (no plan).
+func (t TaxYear) Plan(name string) StudentLoanPlan {
+	for _, p := range t.StudentLoans {
+		if p.Name == name {
+			return p
+		}
+	}
+	return StudentLoanPlan{}
+}
+
 // contributions returns the employee and employer pension contributions on the
 // qualifying earnings — gross capped at the upper limit, less the lower limit.
 func (s AutoEnrolment) contributions(gross money.Money, cur money.Currency) (employee, employer money.Money) {
@@ -118,15 +221,9 @@ func (s AutoEnrolment) contributions(gross money.Money, cur money.Currency) (emp
 	return employee, employer
 }
 
-// StudentLoanByName returns the plan for a name, or the zero value (no plan).
-func StudentLoanByName(name string) StudentLoanPlan {
-	for _, p := range StudentLoanPlans {
-		if p.Name == name {
-			return p
-		}
-	}
-	return StudentLoanPlan{}
-}
+// StudentLoanByName returns the latest bundled year's plan for a name, or the
+// zero value (no plan).
+func StudentLoanByName(name string) StudentLoanPlan { return Latest().Plan(name) }
 
 // deduction is the annual repayment: rate × earnings above the threshold, rounded
 // down (student-loan deductions favour the borrower).
@@ -176,14 +273,14 @@ func taxCodeAllowance(code string, def money.Money) money.Money {
 // Input is one director's annual salary plus the configuration to assess it.
 type Input struct {
 	GrossAnnual         money.Money
-	Rates               RateTable       // if the zero value, Year2025_26 is used
+	Rates               RateTable       // if the zero value, the latest bundled year is used
 	PersonalAllowance   money.Money     // override the table allowance; zero = use table/tax code
 	TaxCode             string          // e.g. "1257L"; sets the allowance when given
 	StudentLoan         StudentLoanPlan // repayment plan; zero value = none
 	BenefitsInKind      money.Money     // taxable benefits (P11D value); zero = none
 	EmploymentAllowance bool            // true if the company may claim the Employment Allowance
 	AutoEnrol           bool            // true if enrolled in a workplace pension
-	Pension             AutoEnrolment   // scheme to use when AutoEnrol; zero = AutoEnrol2025_26
+	Pension             AutoEnrolment   // scheme to use when AutoEnrol; zero = the latest bundled year's
 }
 
 // Result is the assessed salary, broken into its parts.
@@ -207,7 +304,7 @@ type Result struct {
 func Compute(in Input) (Result, error) {
 	rt := in.Rates
 	if rt.Name == "" {
-		rt = Year2025_26
+		rt = Latest().Rates
 	}
 	cur := in.GrossAnnual.Currency()
 
@@ -237,7 +334,7 @@ func Compute(in Input) (Result, error) {
 	if in.AutoEnrol {
 		scheme := in.Pension
 		if scheme.LowerLimit.Currency().Code == "" {
-			scheme = AutoEnrol2025_26
+			scheme = Latest().Pension
 		}
 		eePension, erPension = scheme.contributions(in.GrossAnnual, cur)
 	}

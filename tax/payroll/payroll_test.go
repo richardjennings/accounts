@@ -27,9 +27,42 @@ func check(t *testing.T, label, got, want string) {
 }
 
 func TestStudentLoanPlan2(t *testing.T) {
-	r := mustCompute(t, Input{GrossAnnual: gbp("30000.00"), TaxCode: "1257L", StudentLoan: Plan2})
+	y2025 := TaxYearOn(2025, time.June, 1)
+	r := mustCompute(t, Input{GrossAnnual: gbp("30000.00"), TaxCode: "1257L", Rates: y2025.Rates, StudentLoan: y2025.Plan(Plan2Name)})
 	check(t, "student loan", r.StudentLoan.String(), "GBP 137.70") // 9% × (30000 − 28470)
 	check(t, "net", r.Net.String(), "GBP 24981.90")                // 30000 − 3486 − 1394.40 − 137.70
+
+	// 2026/27 raises the Plan 2 threshold to £29,385.
+	r = mustCompute(t, Input{GrossAnnual: gbp("30000.00"), TaxCode: "1257L", StudentLoan: StudentLoanByName(Plan2Name)})
+	check(t, "student loan 2026/27", r.StudentLoan.String(), "GBP 55.35") // 9% × (30000 − 29385)
+}
+
+// TestTaxYearOn: the tax year turns on 6 April, and a date after the last bundled
+// year still gets that year.
+func TestTaxYearOn(t *testing.T) {
+	cases := []struct {
+		y    int
+		m    time.Month
+		d    int
+		want int
+	}{
+		{2026, time.April, 5, 2025}, {2026, time.April, 6, 2026}, {2026, time.September, 2, 2026},
+		{2027, time.March, 31, 2026}, {2024, time.June, 1, 2025}, {2030, time.June, 1, 2026},
+	}
+	for _, c := range cases {
+		if got := TaxYearOn(c.y, c.m, c.d); got.Start != c.want {
+			t.Errorf("TaxYearOn(%d-%d-%d) = %d, want %d", c.y, c.m, c.d, got.Start, c.want)
+		}
+	}
+	if Latest().Rates.Name != "2026/27 (England, Wales & NI)" || TaxYearOn(2026, time.June, 1).Label() != "2026 to 2027" {
+		t.Errorf("latest year = %s", Latest().Rates.Name)
+	}
+	// Every bundled year is complete.
+	for _, ty := range TaxYears {
+		if ty.Rates.Name == "" || len(ty.StudentLoans) != 5 || !ty.Pension.UpperLimit.IsPositive() || !ty.Rates.LowerEarningsLimit.IsPositive() {
+			t.Errorf("tax year %d is incomplete: %+v", ty.Start, ty)
+		}
+	}
 }
 
 func TestBenefitInKindRaisesTax(t *testing.T) {

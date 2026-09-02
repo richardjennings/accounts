@@ -150,6 +150,37 @@ type employee struct {
 	AutoEnrol   bool        // enrolled in the workplace pension
 }
 
+// payrollRun is one salary assessed through the payroll engine, kept for the
+// payslip and the P60.
+type payrollRun struct {
+	Employee string
+	TaxCode  string
+	Date     ledger.Date
+	Ref      string
+	Result   payroll.Result
+}
+
+// runView is one payroll run as the Employees page lists it.
+type runView struct {
+	Index         int
+	Employee, Ref string
+	Date          ledger.Date
+	Year          string // tax year label, e.g. "2026 to 2027"
+	YearStart     int
+	Gross, Net    money.Money
+}
+
+// p60View is one employee's P60 for a tax year: the totals of their payroll runs
+// in it and the National Insurance earnings bands those totals fall in.
+type p60View struct {
+	Employee, TaxCode                                   string
+	Year                                                payroll.TaxYear
+	EndsOn                                              string // "5 April 2027"
+	Runs                                                int
+	Pay, Tax, EmployeeNIC, StudentLoan, EmployeePension money.Money
+	AtLEL, LELToPT, PTToUEL                             money.Money
+}
+
 // bankAcct is a bank account the company holds; cash moves through one of these.
 // bankAcct is a bank account the company holds. Currency is set when the
 // account is held in another currency ("" = the company currency); the ledger
@@ -212,7 +243,7 @@ type app struct {
 	entries        []entry
 	seq            int
 	flash          string
-	lastPayroll    *payroll.Result
+	runs           []payrollRun // every salary assessed, for payslips and P60s
 	lastDividend   *dividendRun
 	approvals      []accountsApproval // one per financial year whose accounts the board approved
 	closedThrough  ledger.Date        // periods on/before this date are closed (locked)
@@ -371,7 +402,7 @@ func (a *app) clearBooks() {
 	a.invoiceDocs, a.invoiceOrder, a.costs, a.stmtLines = map[string]*invoiceDoc{}, nil, nil, nil
 	a.assets, a.employees = nil, nil
 	a.banks, a.mainBank = defaultBanks(), chart.Bank
-	a.entries, a.seq, a.lastPayroll, a.lastDividend = nil, 0, nil, nil
+	a.entries, a.seq, a.runs, a.lastDividend = nil, 0, nil, nil
 	a.approvals = nil
 	a.closedThrough = ledger.Date{}
 	a.fxBalances, a.pendingStmt, a.lastImport = nil, nil, nil
@@ -388,6 +419,68 @@ func (a *app) fy() company.FinancialYear { return a.co.YearContaining(a.today) }
 
 var months = []time.Month{time.January, time.February, time.March, time.April, time.May, time.June,
 	time.July, time.August, time.September, time.October, time.November, time.December}
+
+// taxYearOn returns the payroll tables for the tax year a date falls in.
+func taxYearOn(d ledger.Date) payroll.TaxYear { return payroll.TaxYearOn(d.Year, d.Month, d.Day) }
+
+// lastPayroll returns the most recent payroll run's result, for the payslip card.
+func (a *app) lastPayroll() *payroll.Result {
+	if len(a.runs) == 0 {
+		return nil
+	}
+	return &a.runs[len(a.runs)-1].Result
+}
+
+// runViews lists the payroll runs, latest first.
+func (a *app) runViews() []runView {
+	var out []runView
+	for i := len(a.runs) - 1; i >= 0; i-- {
+		r := a.runs[i]
+		ty := taxYearOn(r.Date)
+		out = append(out, runView{Index: i, Employee: r.Employee, Ref: r.Ref, Date: r.Date, Year: ty.Label(), YearStart: ty.Start, Gross: r.Result.Gross, Net: r.Result.Net})
+	}
+	return out
+}
+
+// p60 sums an employee's payroll runs in the tax year that starts in the given
+// year. The National Insurance bands follow the P60: earnings at the lower earnings
+// limit, then up to the primary threshold, then up to the upper earnings limit.
+func (a *app) p60(name string, start int) (p60View, bool) {
+	cur := a.co.Currency
+	v := p60View{Employee: name, Pay: money.Zero(cur), Tax: money.Zero(cur), EmployeeNIC: money.Zero(cur), StudentLoan: money.Zero(cur), EmployeePension: money.Zero(cur),
+		AtLEL: money.Zero(cur), LELToPT: money.Zero(cur), PTToUEL: money.Zero(cur)}
+	for _, r := range a.runs {
+		ty := taxYearOn(r.Date)
+		if r.Employee != name || ty.Start != start {
+			continue
+		}
+		v.Year, v.TaxCode, v.Runs = ty, r.TaxCode, v.Runs+1
+		v.Pay, _ = v.Pay.Add(r.Result.Gross)
+		v.Tax, _ = v.Tax.Add(r.Result.IncomeTax)
+		v.EmployeeNIC, _ = v.EmployeeNIC.Add(r.Result.EmployeeNIC)
+		v.StudentLoan, _ = v.StudentLoan.Add(r.Result.StudentLoan)
+		v.EmployeePension, _ = v.EmployeePension.Add(r.Result.EmployeePension)
+	}
+	if v.Runs == 0 {
+		return v, false
+	}
+	v.EndsOn = fmt.Sprintf("5 April %d", v.Year.Start+1)
+	rt := v.Year.Rates
+	capAt := func(limit money.Money) money.Money {
+		if c, _ := v.Pay.Cmp(limit); c > 0 {
+			return limit
+		}
+		return v.Pay
+	}
+	if c, _ := v.Pay.Cmp(rt.LowerEarningsLimit); c >= 0 {
+		v.AtLEL = rt.LowerEarningsLimit
+		v.LELToPT, _ = capAt(rt.PrimaryThreshold).Sub(rt.LowerEarningsLimit)
+		if above, _ := capAt(rt.UpperEarningsLimit).Sub(rt.PrimaryThreshold); above.IsPositive() {
+			v.PTToUEL = above
+		}
+	}
+	return v, true
+}
 
 // keyDateOptions reports which optional obligations the books show: a payroll when
 // the company has employees or has paid salaries this year, and benefits in kind
@@ -1008,6 +1101,9 @@ type pageData struct {
 
 	Activity                  []journalView
 	Payroll                   *payroll.Result
+	TaxYear                   payroll.TaxYear // the tax year today falls in
+	Runs                      []runView       // payroll runs, latest first
+	LastRun                   *runView
 	CT                        *corporationtax.Result
 	PBT, DepAddBack, CapAllow money.Money
 	CTProvided                money.Money // tax charge posted so far this financial year
@@ -1037,7 +1133,11 @@ func (a *app) render(w http.ResponseWriter, page string) {
 		TB: tb, PL: pl, BS: bs, Accounts: a.book.Accounts(),
 		Invoices: a.sl.Invoices(), OpenInvoices: a.sl.Outstanding(),
 		Bills: a.purch.Bills(), OpenBills: a.purch.Outstanding(),
-		Activity: a.activity(sectionOf(page)), Payroll: a.lastPayroll,
+		Activity: a.activity(sectionOf(page)), Payroll: a.lastPayroll(),
+		TaxYear: taxYearOn(a.today), Runs: a.runViews(),
+	}
+	if len(d.Runs) > 0 {
+		d.LastRun = &d.Runs[0]
 	}
 	for _, ac := range d.Accounts {
 		if ac.Type == ledger.Expense {
@@ -1718,15 +1818,59 @@ func (a *app) routes() *http.ServeMux {
 		if err != nil {
 			return nil, "", err
 		}
-		res, err := payroll.Compute(payroll.Input{GrossAnnual: gross, AutoEnrol: r.FormValue("pension") != ""})
+		when := a.date(r)
+		if a.inClosedPeriod(when) {
+			return nil, "", fmt.Errorf("%s is in a closed period — reopen or use a later date", when)
+		}
+		ty := taxYearOn(when)
+		res, err := payroll.Compute(payroll.Input{GrossAnnual: gross, Rates: ty.Rates, Pension: ty.Pension, AutoEnrol: r.FormValue("pension") != ""})
 		if err != nil {
 			return nil, "", err
 		}
-		a.lastPayroll = &res
+		ref := a.ref("SAL")
+		a.runs = append(a.runs, payrollRun{Employee: a.signer(), TaxCode: "1257L", Date: when, Ref: ref, Result: res})
 		taxNIC, _ := res.IncomeTax.Add(res.EmployeeNIC)
 		erNIC, _ := res.EmployerNIC.Add(res.Class1A) // secondary Class 1 + Class 1A on benefits
-		return payyourself.Salary{Date: a.date(r), Ref: a.ref("SAL"), Gross: gross, TaxNIC: taxNIC, EmployerNIC: erNIC, EmployeePension: res.EmployeePension, EmployerPension: res.EmployerPension, Bank: a.main()}, "Salary run", nil
+		return payyourself.Salary{Date: when, Ref: ref, Gross: gross, TaxNIC: taxNIC, EmployerNIC: erNIC, EmployeePension: res.EmployeePension, EmployerPension: res.EmployerPension, Bank: a.main()}, "Salary run at " + ty.Rates.Name + " rates", nil
 	}))
+	mux.HandleFunc("/pay-yourself/payslip", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		i, err := strconv.Atoi(r.URL.Query().Get("i"))
+		if err != nil || i < 0 || i >= len(a.runs) {
+			http.NotFound(w, r)
+			return
+		}
+		run := a.runs[i]
+		data := struct {
+			Co   company.Company
+			Run  payrollRun
+			Year payroll.TaxYear
+		}{a.co, run, taxYearOn(run.Date)}
+		if err := a.tmpl.ExecuteTemplate(w, "payslipdoc", data); err != nil {
+			log.Printf("payslipdoc: %v", err)
+		}
+	})
+	mux.HandleFunc("/pay-yourself/p60", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		start, err := strconv.Atoi(r.URL.Query().Get("year"))
+		if err != nil {
+			start = taxYearOn(a.today).Start
+		}
+		v, ok := a.p60(strings.TrimSpace(r.URL.Query().Get("name")), start)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		data := struct {
+			Co  company.Company
+			P60 p60View
+		}{a.co, v}
+		if err := a.tmpl.ExecuteTemplate(w, "p60doc", data); err != nil {
+			log.Printf("p60doc: %v", err)
+		}
+	})
 	mux.HandleFunc("/pay-yourself/dividends/declare", a.run("pay-yourself", "/pay-yourself/dividends", func(r *http.Request) (themes.Operation, string, error) {
 		m, err := a.amount(r)
 		if err != nil {
@@ -1813,7 +1957,13 @@ func (a *app) routes() *http.ServeMux {
 			return
 		}
 		e := a.employees[idx]
-		res, err := payroll.Compute(payroll.Input{GrossAnnual: e.Salary, TaxCode: e.TaxCode, StudentLoan: payroll.StudentLoanByName(e.StudentLoan), BenefitsInKind: e.BIK, AutoEnrol: e.AutoEnrol})
+		if a.inClosedPeriod(a.today) {
+			a.flash = "⚠ today is in a closed period — set a later date first"
+			http.Redirect(w, r, "/pay-yourself/employees", http.StatusSeeOther)
+			return
+		}
+		ty := taxYearOn(a.today)
+		res, err := payroll.Compute(payroll.Input{GrossAnnual: e.Salary, Rates: ty.Rates, Pension: ty.Pension, TaxCode: e.TaxCode, StudentLoan: ty.Plan(e.StudentLoan), BenefitsInKind: e.BIK, AutoEnrol: e.AutoEnrol})
 		if err != nil {
 			a.flash = "⚠ " + err.Error()
 			http.Redirect(w, r, "/pay-yourself/employees", http.StatusSeeOther)
@@ -1822,7 +1972,8 @@ func (a *app) routes() *http.ServeMux {
 		taxNIC, _ := res.IncomeTax.Add(res.EmployeeNIC)
 		taxNIC, _ = taxNIC.Add(res.StudentLoan)      // income tax + employee NI + student loan, all withheld
 		erNIC, _ := res.EmployerNIC.Add(res.Class1A) // secondary Class 1 + Class 1A on benefits
-		j, jerr := payyourself.Salary{Date: a.today, Ref: a.ref("SAL"), Gross: e.Salary, TaxNIC: taxNIC, EmployerNIC: erNIC, EmployeePension: res.EmployeePension, EmployerPension: res.EmployerPension, Bank: a.main()}.Journal()
+		ref := a.ref("SAL")
+		j, jerr := payyourself.Salary{Date: a.today, Ref: ref, Gross: e.Salary, TaxNIC: taxNIC, EmployerNIC: erNIC, EmployeePension: res.EmployeePension, EmployerPension: res.EmployerPension, Bank: a.main()}.Journal()
 		if jerr == nil {
 			jerr = a.book.Post(j)
 		}
@@ -1832,8 +1983,8 @@ func (a *app) routes() *http.ServeMux {
 			return
 		}
 		a.entries = append(a.entries, entry{section: "pay-yourself", j: j})
-		a.lastPayroll = &res
-		a.flash = "✓ Ran payroll for " + e.Name
+		a.runs = append(a.runs, payrollRun{Employee: e.Name, TaxCode: e.TaxCode, Date: a.today, Ref: ref, Result: res})
+		a.flash = "✓ Ran payroll for " + e.Name + " at " + ty.Rates.Name + " rates"
 		http.Redirect(w, r, "/pay-yourself/employees", http.StatusSeeOther)
 	})
 
