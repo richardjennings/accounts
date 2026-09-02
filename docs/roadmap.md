@@ -45,9 +45,31 @@ already "work".
   on, a nine-box VAT return is **generated** (not filed) — Boxes 1/3/4/5 exact from the VAT
   control account. A `vatreturn` package computes it; shown under Company Tax.
 
-**The whole P1 list plus most of P2/P3 is now built.** Remaining: purchase credit notes;
-share transfers / multiple classes; accruals & prepayments; associated-company CT limits;
-guided interactive lessons (beyond the Learn page); a downloadable VAT-return document.
+- **Key dates.** The company holds its registered email, the last confirmation statement
+  date and its VAT quarter end month. From those, the year end and the date of
+  incorporation it derives every filing and payment due — annual accounts, corporation
+  tax payment, CT600, confirmation statement, VAT return, PAYE, P60, P11D(b), Class 1A —
+  with the Companies Act month-end rule. The Company page lists them; the Overview shows
+  the next three. The first accounting reference period now runs for more than six
+  months, as the Act requires.
+- **Company-secretarial depth** (was P2 #11, in part). Officers carry their registrable
+  details and identity verification date; a PSC register with the Companies House nature
+  of control statements; a generated **confirmation statement**; a **board minute** and
+  per-shareholder **vouchers** for every dividend. Still open: share classes and premium.
+- **Statutory accounts completeness.** Comparative figures for the year before, the
+  board's approval date and signing director, the average-employees note, and a draft
+  marking until the board approves. The iXBRL carries the comparative column in prior
+  contexts, on the `ixbrl` module's two-column table row.
+- **Payroll tax years.** Each run uses the tax year its date falls in; 2026/27 tables are
+  verified against HMRC and the DWP. Every run is kept, with a **payslip** and a **P60**
+  per employee per tax year. Still an annual earnings period; no RTI.
+- **Documents.** The VAT return, payslips, P60s, dividend vouchers, board minutes and the
+  confirmation statement are all printable, and the VAT return downloads as a file.
+  Purchase credit notes, share transfers and accruals & prepayments are in the UI too.
+
+**The whole P1 list plus most of P2/P3 is now built.** Remaining: share classes and share
+premium; associated-company CT limits; guided interactive lessons (beyond the Learn page);
+monthly payroll periods and RTI; a CT600 document.
 
 ---
 
@@ -152,9 +174,9 @@ Monthly/weekly pay periods (only annualised today), payslip/P60/P45 documents, s
 (SSP/SMP), and the directors' cumulative-vs-alternative NI method. **Effort: medium–large.**
 
 ### 11. Company-secretarial depth
-Share **transfers** between members, multiple **share classes**, share premium, a **PSC
-register**, a **confirmation statement** document, and dividend vouchers as printable PDFs.
-Articles of association are still only referenced, not modelled. **Effort: medium.**
+Multiple **share classes** and share premium. Share transfers, the PSC register, the
+confirmation statement document, board minutes and printable dividend vouchers are built.
+Articles of association are still only referenced, not modelled. **Effort: small–medium.**
 
 ---
 
@@ -192,6 +214,13 @@ These are correct enough for the game but not the full rules:
 - **Recharge VAT** is always standard-rated when registered; it should follow the liability
   of the main supply.
 - **Payroll** assesses an annual earnings period only — no in-year periods or RTI artefacts.
+  A P60 sums the annual runs in a tax year and reports the NI bands on that total.
+- **Payslips and P60s** carry no PAYE reference or National Insurance number; the company
+  and employee records do not hold them.
+- **Key dates** derive from the dates entered in the app, not from the Companies House
+  record, so the last confirmation statement date must be kept up to date by hand.
+- **Average number of employees** in the accounts defaults to today's headcount until the
+  board records the year's average with its approval.
 - **Share capital** is a single ordinary class at par; no premium, classes, or transfers.
 
 ---
