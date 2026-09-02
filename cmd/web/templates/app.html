@@ -201,6 +201,8 @@
  <dt>Retained earnings</dt><dd>Accumulated profit kept in the company. The year-end close moves each year's profit here.</dd>
  <dt>Reconciliation</dt><dd>Checking your books against an external record — like a bank statement — until they agree.</dd>
  <dt>iXBRL</dt><dd>Inline XBRL: accounts that read normally in a browser but carry machine-readable tags — the format filed at Companies House.</dd>
+ <dt>Confirmation statement</dt><dd>The yearly check-in with Companies House that the registered details, officers, people with significant control and shareholders on the public register are right. Due within fourteen days after each twelve-month review period.</dd>
+ <dt>Key dates</dt><dd>When each filing and payment is due: accounts nine months after the year-end, corporation tax nine months and a day, the CT600 twelve months, and the confirmation statement fourteen days after its review period. See <a href="/company">Company · Details</a>.</dd>
 </dl></div>{{end}}
 
 
@@ -252,7 +254,18 @@
 <table class="stmt"><tr><th>Due</th><th>What</th><th>Covers</th><th>To</th></tr>
 {{range .KeyDates}}<tr{{if .Overdue}} class="over"{{end}}><td class="date">{{.Due}}{{if .Overdue}} <span class="badge warn">overdue</span>{{end}}</td><td>{{.What}}</td><td class="muted">{{.Detail}}</td><td>{{.Recipient}}</td></tr>{{end}}
 </table>
-<p class="muted">As at today ({{.Today}}), derived from the year-end, the date of incorporation and the last confirmation statement date. Annual accounts are due nine months after the year-end; corporation tax nine months and one day after it; the CT600 twelve months after it; the confirmation statement fourteen days after its twelve-month review period ends.{{if and .Co.VATRegistered (not .Co.VATQuarterEndMonth)}} Set the VAT quarter end month above to see VAT return dates.{{end}} PAYE dates appear once the company runs a payroll. Nothing here is filed for you — the game generates documents but never sends them.</p></div>{{end}}
+<p class="muted">As at today ({{.Today}}), derived from the year-end, the date of incorporation and the last confirmation statement date. Annual accounts are due nine months after the year-end; corporation tax nine months and one day after it; the CT600 twelve months after it; the confirmation statement fourteen days after its twelve-month review period ends.{{if and .Co.VATRegistered (not .Co.VATQuarterEndMonth)}} Set the VAT quarter end month above to see VAT return dates.{{end}} PAYE dates appear once the company runs a payroll. Nothing here is filed for you — the game generates documents but never sends them.</p></div>
+<div class="card"><h3>Confirmation statement</h3>
+<div class="row">
+ <div class="snap" style="flex:1;min-width:250px">
+  <div class="kv"><span>Last made up to</span><b>{{if .Co.LastStatementDate.IsZero}}none yet{{else}}{{.Co.LastStatementDate}}{{end}}</b></div>
+  <div class="kv"><span>Next statement date</span><b>{{.NextStatementDate}}</b></div>
+  <div class="kv tot"><span>Deliver by</span><b>{{.NextStatementDue}}</b></div></div>
+ <div style="flex:1;min-width:250px">
+  <p><a class="btn" href="/company/confirmation-statement" target="_blank">View statement (made up to {{.NextStatementDate}})</a></p>
+  <form method="post" action="/company/statement/made" class="inl"><label>Made up to<input type="date" name="date" value="{{.NextStatementDate}}"></label><button>Record as made</button></form></div>
+</div>
+<p class="muted">The statement confirms the registered details, officers, people with significant control, shareholders and share capital as at the statement date. Recording it as made starts the next twelve-month review period. It is generated, never filed.</p></div>{{end}}
 
 
 {{define "page:company.year"}}<h1>Company · Financial year</h1>
@@ -856,10 +869,7 @@
 {{else}}<p class="muted">Accounts could not be built for this period.</p>{{end}}{{end}}
 
 
-{{define "invoicedoc"}}<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Invoice {{.Doc.Ref}} — {{.Co.Name}}</title>
-<style>
+{{define "docstyle"}}<style>
  *{box-sizing:border-box}
  body{margin:0;background:#eef1f6;font-family:system-ui,-apple-system,Segoe UI,Arial,sans-serif;color:#1b2733}
  .sheet{max-width:720px;margin:24px auto;background:#fff;border:1px solid #dbe3ec;border-radius:10px;padding:34px 40px;box-shadow:0 1px 3px rgba(20,40,80,.08)}
@@ -887,7 +897,13 @@
  .actions a{color:#2f66d0;text-decoration:none;margin-right:14px}
  button{padding:7px 13px;border:0;border-radius:6px;background:#2f66d0;color:#fff;font-size:13px;font-weight:600;cursor:pointer}
  @media print{body{background:#fff}.sheet{border:0;box-shadow:none;margin:0;max-width:100%}.actions{display:none}}
-</style></head>
+</style>{{end}}
+
+
+{{define "invoicedoc"}}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Invoice {{.Doc.Ref}} — {{.Co.Name}}</title>
+{{template "docstyle"}}</head>
 <body>
 <div class="sheet">
  <header>
@@ -914,4 +930,52 @@
  <p class="foot">Payment due to {{.Co.Name}}. This is a computer-generated invoice produced by a virtual accounting game — not a demand for payment from a real business.</p>
 </div>
 <div class="actions"><a href="/sales">← Back to Sales</a><button onclick="window.print()">Print / Save PDF</button></div>
+</body></html>{{end}}
+
+
+{{define "csdoc"}}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Confirmation statement — {{.Co.Name}}</title>
+{{template "docstyle"}}
+<style>
+ h3{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:#627d98;margin:20px 0 8px}
+ .kv{display:flex;font-size:13px;padding:3px 0}.kv span{width:220px;color:#627d98;flex:none}
+ .warn{color:#b34700}
+</style></head>
+<body>
+<div class="sheet">
+ <header>
+  <div><h1>{{.Co.Name}}</h1><p>Company no. {{.Co.Number}}<br>{{.Co.RegisteredOffice}}</p></div>
+  <div class="meta"><h2>CONFIRMATION STATEMENT</h2><p>Made up to <b>{{.StatementDate}}</b></p></div>
+ </header>
+ <p>The company confirms that the information held on the public register is correct as at the statement date, with the details below.</p>
+ <h3>Registered details</h3>
+ <div class="kv"><span>Company type</span>Private company limited by shares</div>
+ <div class="kv"><span>Registered office</span>{{.Co.RegisteredOffice}}</div>
+ <div class="kv"><span>Registered email address</span>{{if .Co.RegisteredEmail}}{{.Co.RegisteredEmail}}{{else}}<i class="warn">not set — every company must give one</i>{{end}}</div>
+ <div class="kv"><span>SIC code</span>{{.Co.SICCode}}</div>
+ <h3>Officers</h3>
+ <table class="doc"><tr><th>Name</th><th>Role</th><th>Appointed</th><th>Nationality</th><th>Occupation</th><th>Service address</th><th>Identity</th></tr>
+ {{range .Officers}}<tr><td>{{.Name}}</td><td>{{.Role}}</td><td>{{.Appointed}}</td><td>{{.Nationality}}</td><td>{{.Occupation}}</td><td>{{.ServiceAddress}}</td><td>{{if .IdentityVerified}}Verified {{.IdentityVerifiedOn}}{{else}}<span class="warn">Not verified</span>{{end}}</td></tr>{{end}}
+ </table>
+ <h3>People with significant control</h3>
+ {{if .PSCs}}<table class="doc"><tr><th>Name</th><th>Notified</th><th>Nature of control</th><th>Identity</th></tr>
+ {{range .PSCs}}<tr><td>{{.Name}}</td><td>{{.Notified}}</td><td>{{range .NatureOfControl}}{{.}}<br>{{end}}</td><td>{{if .IdentityVerified}}Verified {{.IdentityVerifiedOn}}{{else}}<span class="warn">Not verified</span>{{end}}</td></tr>{{end}}
+ </table>{{else}}<p>The company has no person with significant control.</p>{{end}}
+ <h3>Statement of capital</h3>
+ <table class="doc"><tr><th>Class of shares</th><th class="num">Number</th><th class="num">Nominal value</th><th class="num">Aggregate nominal value</th><th class="num">Paid up</th></tr>
+ <tr><td>Ordinary</td><td class="num">{{.TotalShares}}</td><td class="num">{{money .Nominal}}</td><td class="num">{{money .IssuedCapital}}</td><td class="num">{{money .IssuedCapital}}</td></tr>
+ </table>
+ <p>Prescribed particulars: each share carries one vote, an equal right to dividends and an equal right to a distribution of capital.</p>
+ <h3>Shareholders</h3>
+ <table class="doc"><tr><th>Name</th><th>Class</th><th class="num">Shares held</th></tr>
+ {{range .Members}}<tr><td>{{.Name}}</td><td>{{.Class}}</td><td class="num">{{.Shares}}</td></tr>{{end}}
+ </table>
+ <h3>Statements</h3>
+ <p>None of the company's shares were admitted to trading on a market during the review period.</p>
+ <p>The intended future activities of the company are lawful.</p>
+ {{if .Unverified}}<p class="warn">Identity verification is not recorded for: {{range $i, $n := .Unverified}}{{if $i}}, {{end}}{{$n}}{{end}}. Every director and person with significant control must verify their identity before the statement is delivered.</p>{{else}}<p>Every director and person with significant control has verified their identity with Companies House.</p>{{end}}
+ <p class="foot">Generated by a virtual accounting game from the company's registers. It is not a filing, and nothing is sent to Companies House.</p>
+</div>
+<div class="actions"><a href="/company">← Back to Company</a><button onclick="window.print()">Print / Save PDF</button></div>
 </body></html>{{end}}

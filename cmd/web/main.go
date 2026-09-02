@@ -875,6 +875,9 @@ type pageData struct {
 	NextDue       []company.KeyDate // the first few key dates, for the overview
 	Months        []time.Month
 
+	NextStatementDate ledger.Date // statement date of the next confirmation statement
+	NextStatementDue  ledger.Date // last day to deliver it
+
 	Bank, Cash, Debtors, Creditors, PAYE, CorpTaxDue, DirLoan money.Money
 	AccrualsBal, PrepaidBal                                   money.Money
 	Profit, Reserves, SalesTotal, ExpensesTotal               money.Money
@@ -974,6 +977,7 @@ func (a *app) render(w http.ResponseWriter, page string) {
 		d.NextDue = d.NextDue[:3]
 	}
 	d.Months = months
+	d.NextStatementDate, d.NextStatementDue = a.co.NextStatement()
 	d.Banks, d.MainBank = a.banks, a.main()
 	for _, b := range a.banks {
 		if b.Currency != "" {
@@ -1191,6 +1195,55 @@ func (a *app) routes() *http.ServeMux {
 		}
 		a.mu.Unlock()
 		http.Redirect(w, r, "/company/financial-year", http.StatusSeeOther)
+	})
+	mux.HandleFunc("/company/confirmation-statement", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		statementDate, _ := a.co.NextStatement()
+		if d := parseDate(r.URL.Query().Get("date"), ledger.Date{}); !d.IsZero() {
+			statementDate = d
+		}
+		data := struct {
+			Co            company.Company
+			StatementDate ledger.Date
+			Officers      []register.Officer
+			PSCs          []register.PSC
+			Members       []register.Member
+			TotalShares   int
+			Nominal       money.Money
+			IssuedCapital money.Money
+			Unverified    []string // directors and PSCs with no identity verification recorded
+		}{Co: a.co, StatementDate: statementDate, PSCs: a.reg.CurrentPSCs(), Members: a.reg.Members,
+			TotalShares: a.reg.TotalShares(), Nominal: a.reg.Nominal, IssuedCapital: a.reg.IssuedCapital()}
+		for _, o := range a.reg.Officers {
+			if o.InOffice() {
+				data.Officers = append(data.Officers, o)
+				if o.Role == register.Director && !o.IdentityVerified() {
+					data.Unverified = append(data.Unverified, o.Name)
+				}
+			}
+		}
+		for _, p := range data.PSCs {
+			if !p.IdentityVerified() {
+				data.Unverified = append(data.Unverified, p.Name)
+			}
+		}
+		if err := a.tmpl.ExecuteTemplate(w, "csdoc", data); err != nil {
+			log.Printf("csdoc: %v", err)
+		}
+	})
+	mux.HandleFunc("/company/statement/made", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			a.mu.Lock()
+			if d := parseDate(r.FormValue("date"), ledger.Date{}); d.IsZero() {
+				a.flash = "⚠ enter the date the statement is made up to"
+			} else {
+				a.co.LastStatementDate = d
+				a.flash = "✓ Confirmation statement recorded as made up to " + d.String()
+			}
+			a.mu.Unlock()
+		}
+		http.Redirect(w, r, "/company", http.StatusSeeOther)
 	})
 	mux.HandleFunc("/company/import/run", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
