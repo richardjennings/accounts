@@ -5,9 +5,11 @@
 // XBRL facts inline, exactly as a real filing does.
 //
 // It builds the statutory balance-sheet layout (Companies Act 2006 micro-entity
-// format), a summarised profit & loss account, and the fixed statutory statements,
-// from the ledger. In keeping with the product, it GENERATES the document perfectly
-// but transmits nothing — there is no Companies House or HMRC submission.
+// format), a summarised profit & loss account, the comparative figures for the
+// year before, the average-employees note and the fixed statutory statements,
+// from the ledger. In keeping with the product, it GENERATES the document
+// perfectly but transmits nothing — there is no Companies House or HMRC
+// submission.
 //
 // Honesty note: the figures and structure are correct, and the inline XBRL is
 // well-formed and tagged with representative FRC-taxonomy concepts. It is not
@@ -18,6 +20,7 @@ package frs105
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/richardjennings/accounts/company"
 	"github.com/richardjennings/accounts/ledger"
@@ -25,11 +28,9 @@ import (
 	"github.com/richardjennings/accounts/report"
 )
 
-// Accounts is a micro-entity's statutory accounts for one financial year.
-type Accounts struct {
-	Co       company.Company
-	FY       company.FinancialYear
-	SignedBy string // director approving the accounts
+// Figures are the balance sheet and profit and loss figures for one financial year.
+type Figures struct {
+	FY company.FinancialYear
 
 	// Balance sheet (as at the year-end), in the statutory micro-entity order.
 	FixedAssets        money.Money
@@ -52,6 +53,23 @@ type Accounts struct {
 	ProfitForYear   money.Money
 }
 
+// Options are the facts the accounts need that the ledger does not hold.
+type Options struct {
+	SignedBy         string      // director who signs the balance sheet
+	ApprovedOn       ledger.Date // date the board approved the accounts; zero for a draft
+	AverageEmployees int         // average number of persons employed in the year, directors included
+}
+
+// Accounts is a micro-entity's statutory accounts for one financial year: the
+// figures for that year, the comparative figures for the year before, and the
+// approval facts.
+type Accounts struct {
+	Co company.Company
+	Figures
+	Prior *Figures // the year before, for the comparative column; nil in the first year
+	Options
+}
+
 // chart codes this mapping relies on.
 const (
 	shareCapital  = "3000"
@@ -59,18 +77,37 @@ const (
 	corpTaxCharge = "8200"
 )
 
-// Build assembles the accounts from the book for the given financial year.
-func Build(book *ledger.Book, co company.Company, fy company.FinancialYear, signedBy string) (Accounts, error) {
+// Build assembles the accounts from the book for the given financial year. From
+// the second year on it also builds the year before as the comparative.
+func Build(book *ledger.Book, co company.Company, fy company.FinancialYear, opts Options) (Accounts, error) {
+	current, err := figures(book, fy)
+	if err != nil {
+		return Accounts{}, err
+	}
+	a := Accounts{Co: co, Figures: current, Options: opts}
+	if fy.Number > 1 {
+		dayBefore := time.Date(fy.Start.Year, fy.Start.Month, fy.Start.Day, 0, 0, 0, 0, time.UTC).AddDate(0, 0, -1)
+		prior, err := figures(book, co.YearContaining(ledger.NewDate(dayBefore.Year(), dayBefore.Month(), dayBefore.Day())))
+		if err != nil {
+			return Accounts{}, err
+		}
+		a.Prior = &prior
+	}
+	return a, nil
+}
+
+// figures reads one financial year's balance sheet and profit and loss from the book.
+func figures(book *ledger.Book, fy company.FinancialYear) (Figures, error) {
 	base := book.Base()
 	bs, err := report.NewBalanceSheet(book, fy.End)
 	if err != nil {
-		return Accounts{}, err
+		return Figures{}, err
 	}
 	pl, err := report.NewProfitAndLoss(book, fy.Start, fy.End)
 	if err != nil {
-		return Accounts{}, err
+		return Figures{}, err
 	}
-	a := Accounts{Co: co, FY: fy, SignedBy: signedBy}
+	f := Figures{FY: fy}
 
 	// Balance sheet: split assets into fixed (0xxx) and current (everything else),
 	// treat all liabilities as due within one year (this chart has no long-term debt).
@@ -82,37 +119,41 @@ func Build(book *ledger.Book, co company.Company, fy company.FinancialYear, sign
 			current, _ = current.Add(l.Amount)
 		}
 	}
-	a.FixedAssets, a.CurrentAssets = fixed, current
-	a.CreditorsWithin1Yr = bs.TotalLiabilities
-	a.NetCurrentAssets, _ = current.Sub(bs.TotalLiabilities)
-	a.TotalAssetsLessCL, _ = fixed.Add(a.NetCurrentAssets)
-	a.NetAssets = a.TotalAssetsLessCL // no creditors >1yr, provisions or accruals here
+	f.FixedAssets, f.CurrentAssets = fixed, current
+	f.CreditorsWithin1Yr = bs.TotalLiabilities
+	f.NetCurrentAssets, _ = current.Sub(bs.TotalLiabilities)
+	f.TotalAssetsLessCL, _ = fixed.Add(f.NetCurrentAssets)
+	f.NetAssets = f.TotalAssetsLessCL // no creditors >1yr, provisions or accruals here
 
 	// Capital and reserves: share capital, and everything else in equity (including
 	// the profit for the period the balance sheet folds in) as the P&L reserve.
-	a.CalledUpCapital, _ = book.BalanceAsAt(shareCapital, fy.End)
-	a.CapitalAndReserves = bs.TotalEquity
-	a.ProfitLossReserve, _ = bs.TotalEquity.Sub(a.CalledUpCapital)
+	f.CalledUpCapital, _ = book.BalanceAsAt(shareCapital, fy.End)
+	f.CapitalAndReserves = bs.TotalEquity
+	f.ProfitLossReserve, _ = bs.TotalEquity.Sub(f.CalledUpCapital)
 
 	// Profit & loss account.
-	a.Turnover = pl.TotalIncome
-	a.CostOfSales, _ = book.MovementBetween(costOfSales, fy.Start, fy.End)
-	a.GrossProfit, _ = a.Turnover.Sub(a.CostOfSales)
-	a.Tax, _ = book.MovementBetween(corpTaxCharge, fy.Start, fy.End)
+	f.Turnover = pl.TotalIncome
+	f.CostOfSales, _ = book.MovementBetween(costOfSales, fy.Start, fy.End)
+	f.GrossProfit, _ = f.Turnover.Sub(f.CostOfSales)
+	f.Tax, _ = book.MovementBetween(corpTaxCharge, fy.Start, fy.End)
 	// Admin expenses are every expense except cost of sales and the tax charge.
-	admin := money.Zero(base)
-	adminSubs, _ := a.CostOfSales.Add(a.Tax)
-	if admin, err = pl.TotalExpenses.Sub(adminSubs); err != nil {
-		return Accounts{}, err
+	adminSubs, _ := f.CostOfSales.Add(f.Tax)
+	admin, err := pl.TotalExpenses.Sub(adminSubs)
+	if err != nil {
+		return Figures{}, err
 	}
-	a.AdminExpenses = admin
-	a.ProfitBeforeTax, _ = a.GrossProfit.Sub(a.AdminExpenses)
-	a.ProfitForYear, _ = a.ProfitBeforeTax.Sub(a.Tax)
-	return a, nil
+	f.AdminExpenses = admin
+	f.ProfitBeforeTax, _ = f.GrossProfit.Sub(f.AdminExpenses)
+	f.ProfitForYear, _ = f.ProfitBeforeTax.Sub(f.Tax)
+	return f, nil
 }
 
 // Balances reports whether net assets equal capital and reserves.
-func (a Accounts) Balances() bool { return a.NetAssets.Equal(a.CapitalAndReserves) }
+func (f Figures) Balances() bool { return f.NetAssets.Equal(f.CapitalAndReserves) }
+
+// Approved reports whether the board has approved the accounts. Until then the
+// document is a draft.
+func (a Accounts) Approved() bool { return !a.ApprovedOn.IsZero() }
 
 // statements are the fixed FRS 105 / Companies Act declarations on the balance sheet.
 func (a Accounts) statements() []string {

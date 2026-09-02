@@ -214,7 +214,8 @@ type app struct {
 	flash          string
 	lastPayroll    *payroll.Result
 	lastDividend   *dividendRun
-	closedThrough  ledger.Date // periods on/before this date are closed (locked)
+	approvals      []accountsApproval // one per financial year whose accounts the board approved
+	closedThrough  ledger.Date        // periods on/before this date are closed (locked)
 	lastImport     *importReport
 	fxBalances     map[string]money.Money // currency balances of foreign-currency bank accounts
 	pendingStmt    *pendingStatement
@@ -227,6 +228,23 @@ type app struct {
 // — i.e. on or before the closed-through date.
 func (a *app) inClosedPeriod(d ledger.Date) bool {
 	return !a.closedThrough.IsZero() && !a.closedThrough.Before(d)
+}
+
+// accountsApproval records the board's approval of one financial year's accounts:
+// the facts the statutory accounts carry that the ledger does not hold.
+type accountsApproval struct {
+	FY               int // financial year number
+	On               ledger.Date
+	SignedBy         string
+	AverageEmployees int
+}
+
+// accountsLine is one row of the statutory accounts on the page: the figure for
+// the year and, from the second year, the year before.
+type accountsLine struct {
+	Label          string
+	Current, Prior money.Money
+	Deduct, Total  bool
 }
 
 // dividendRun is the most recent dividend declaration, kept for the voucher display.
@@ -321,6 +339,7 @@ func (a *app) clearBooks() {
 	a.assets, a.employees = nil, nil
 	a.banks, a.mainBank = defaultBanks(), chart.Bank
 	a.entries, a.seq, a.lastPayroll, a.lastDividend = nil, 0, nil, nil
+	a.approvals = nil
 	a.closedThrough = ledger.Date{}
 	a.fxBalances, a.pendingStmt, a.lastImport = nil, nil, nil
 	a.seedShareCapital()
@@ -342,9 +361,80 @@ func (a *app) signer() string {
 	return "A Director"
 }
 
+// approval returns the board's approval of a financial year's accounts, if recorded.
+func (a *app) approval(fy int) *accountsApproval {
+	for i := range a.approvals {
+		if a.approvals[i].FY == fy {
+			return &a.approvals[i]
+		}
+	}
+	return nil
+}
+
+// setApproval records the board's approval of a year's accounts, replacing any
+// earlier record for that year.
+func (a *app) setApproval(ap accountsApproval) {
+	if cur := a.approval(ap.FY); cur != nil {
+		*cur = ap
+		return
+	}
+	a.approvals = append(a.approvals, ap)
+}
+
+// headcount counts the people on the payroll and the in-office directors, each
+// once. It stands in for the year's average number of employees until the board
+// records one.
+func (a *app) headcount() int {
+	seen := map[string]bool{}
+	for _, e := range a.employees {
+		seen[e.Name] = true
+	}
+	for _, d := range a.reg.Directors() {
+		seen[d.Name] = true
+	}
+	return len(seen)
+}
+
 // accounts builds the statutory year-end accounts for the current financial year.
 func (a *app) accounts() (frs105.Accounts, error) {
-	return frs105.Build(a.book, a.co, a.fy(), a.signer())
+	fy := a.fy()
+	opts := frs105.Options{SignedBy: a.signer(), AverageEmployees: a.headcount()}
+	if ap := a.approval(fy.Number); ap != nil {
+		opts = frs105.Options{SignedBy: ap.SignedBy, ApprovedOn: ap.On, AverageEmployees: ap.AverageEmployees}
+	}
+	return frs105.Build(a.book, a.co, fy, opts)
+}
+
+// accountsLines lays the accounts out as rows for the page, with the comparative
+// figures beside the year's when there is a year before.
+func accountsLines(acc frs105.Accounts) (bs, pl []accountsLine) {
+	var prior frs105.Figures // zero figures when there is no year before
+	if acc.Prior != nil {
+		prior = *acc.Prior
+	}
+	line := func(label string, cur, pri money.Money, deduct, total bool) accountsLine {
+		return accountsLine{Label: label, Current: cur, Prior: pri, Deduct: deduct, Total: total}
+	}
+	bs = []accountsLine{
+		line("Fixed assets", acc.FixedAssets, prior.FixedAssets, false, false),
+		line("Current assets", acc.CurrentAssets, prior.CurrentAssets, false, false),
+		line("Creditors: amounts falling due within one year", acc.CreditorsWithin1Yr, prior.CreditorsWithin1Yr, true, false),
+		line("Net current assets", acc.NetCurrentAssets, prior.NetCurrentAssets, false, false),
+		line("Net assets", acc.NetAssets, prior.NetAssets, false, true),
+		line("Called-up share capital", acc.CalledUpCapital, prior.CalledUpCapital, false, false),
+		line("Profit and loss account", acc.ProfitLossReserve, prior.ProfitLossReserve, false, false),
+		line("Capital and reserves", acc.CapitalAndReserves, prior.CapitalAndReserves, false, true),
+	}
+	pl = []accountsLine{
+		line("Turnover", acc.Turnover, prior.Turnover, false, false),
+		line("Cost of sales", acc.CostOfSales, prior.CostOfSales, true, false),
+		line("Gross profit", acc.GrossProfit, prior.GrossProfit, false, false),
+		line("Administrative expenses", acc.AdminExpenses, prior.AdminExpenses, true, false),
+		line("Profit before tax", acc.ProfitBeforeTax, prior.ProfitBeforeTax, false, false),
+		line("Tax", acc.Tax, prior.Tax, true, false),
+		line("Profit for the year", acc.ProfitForYear, prior.ProfitForYear, false, true),
+	}
+	return bs, pl
 }
 
 // vatReturn computes the VAT return for the current financial year. Wages, pension,
@@ -865,6 +955,8 @@ type pageData struct {
 	PBT, DepAddBack, CapAllow money.Money
 	CTProvided                money.Money // tax charge posted so far this financial year
 	Acc                       *frs105.Accounts
+	BSLines, PLLines          []accountsLine
+	Directors                 []register.Officer
 	VATReturn                 *vatreturn.Return
 }
 
@@ -947,7 +1039,9 @@ func (a *app) render(w http.ResponseWriter, page string) {
 	if page == "accounting.accounts" {
 		if acc, err := a.accounts(); err == nil {
 			d.Acc = &acc
+			d.BSLines, d.PLLines = accountsLines(acc)
 		}
+		d.Directors = a.reg.Directors()
 	}
 	if page == "banking.reconcile" {
 		d.Recs = a.reconciliations()
@@ -1711,6 +1805,25 @@ func (a *app) routes() *http.ServeMux {
 			}
 		}
 		http.Redirect(w, r, "/accounting/journals", http.StatusSeeOther)
+	})
+	mux.HandleFunc("/accounting/accounts/approve", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			a.mu.Lock()
+			fy := a.fy()
+			n, err := a.whole(r, "employees")
+			signer := strings.TrimSpace(r.FormValue("signer"))
+			if signer == "" {
+				signer = a.signer()
+			}
+			if err != nil {
+				a.flash = "⚠ enter the average number of employees as a whole number"
+			} else {
+				a.setApproval(accountsApproval{FY: fy.Number, On: a.date(r), SignedBy: signer, AverageEmployees: n})
+				a.flash = fmt.Sprintf("✓ FY%d accounts approved on %s, signed by %s", fy.Number, a.date(r), signer)
+			}
+			a.mu.Unlock()
+		}
+		http.Redirect(w, r, "/accounting/accounts", http.StatusSeeOther)
 	})
 	mux.HandleFunc("/accounting/accounts/ixbrl", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
