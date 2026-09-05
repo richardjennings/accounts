@@ -1299,7 +1299,19 @@ func main() {
 		"listen address (host:port); use :0 to auto-pick a free port")
 	data := flag.String("data", envOr("ACCOUNTS_DATA", defaultDataPath()),
 		"save file for the company; empty for in-memory only")
+	mcp := flag.Bool("mcp", false, "serve the books read-only to an MCP client over stdio instead of the web UI")
 	flag.Parse()
+
+	if *mcp {
+		s, err := newMCPServer(*data)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := s.serve(os.Stdin, os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 
 	a, err := newApp(*data)
 	if err != nil {
