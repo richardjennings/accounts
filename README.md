@@ -119,6 +119,27 @@ Accounting** — each expanding to its own sub-sections (Invoices, Salary, Divid
 dividend reserves check, depreciation, mileage), and the statements update live.
 In-memory, no external integrations.
 
+## Ask questions over MCP
+
+```sh
+go run ./cmd/web -mcp                   # serves the books over stdio, read only
+```
+
+The same binary can serve the books to a Model Context Protocol (MCP) client such as
+Claude Code. It reads the save file the web UI writes and loads it again whenever the
+file changes, so an answer always matches the latest save. It never posts and never
+writes the save file. `-data` and `ACCOUNTS_DATA` choose the save file, as for the UI.
+
+The tools cover the company and its key dates, the financial position, dividend
+capacity and history, the profit and loss, balance sheet and trial balance, journals
+with their explanations, invoices, bills, payroll and the corporation-tax estimate.
+
+To register it with Claude Code for this project on this machine:
+
+```sh
+claude mcp add accounts -- go -C "$PWD" run ./cmd/web -mcp
+```
+
 ## Build & test
 
 ```sh
