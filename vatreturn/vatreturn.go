@@ -10,6 +10,7 @@ package vatreturn
 
 import (
 	"fmt"
+
 	"github.com/richardjennings/accounts/ledger"
 	"github.com/richardjennings/accounts/money"
 )
@@ -75,7 +76,7 @@ func Compute(book *ledger.Book, from, to ledger.Date, opt Options) (Return, erro
 			continue
 		}
 		if output && input {
-			return Return{}, fmt.Errorf("vatreturn: journal %s mixes sales and purchases; split its VAT", j.Ref())
+			return Return{}, fmt.Errorf("vatreturn: journal %q dated %s (%s) mixes sales and purchases; split it into separate sales and purchase journals with their own VAT", j.Ref(), j.Date(), j.Narrative())
 		}
 		if output {
 			r.Box1, _ = r.Box1.Add(vatNet)

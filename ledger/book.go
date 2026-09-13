@@ -83,6 +83,9 @@ func (b *Book) CloseThrough(on Date) {
 	}
 }
 
+// ClosedThrough returns the last locked date, or the zero date for an open book.
+func (b *Book) ClosedThrough() Date { return b.closedThrough }
+
 // Journals returns a copy of the posted journals in posting order.
 func (b *Book) Journals() []Journal {
 	out := make([]Journal, len(b.journals))

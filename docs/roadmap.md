@@ -46,7 +46,7 @@ silently rewritten.
    supply them. Add downward CT provision adjustments and a CT600 document.
 3. **Document validation.** Validate against a complete supported FRC taxonomy and
    recipient rules, then implement filing profiles. Current iXBRL has representative
-   tags and XML validation; it is not a validated filing artifact. Add FRS 102 §1A,
+   tags and XML validation; it is not a validated filing artifact. Add FRS 102 section 1A,
    long-term liability presentation and further statutory disclosures.
 4. **Payroll periods and schemes.** Add proper weekly/monthly PAYE and employee NI,
    stable employee identifiers, fuller tax-code handling, pension eligibility and

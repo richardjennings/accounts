@@ -39,7 +39,7 @@ func integrityInvoice(t *testing.T, a *app) string {
 func TestRegressionRejectedReceiptLeavesInvoiceUntouched(t *testing.T) {
 	a := integrityApp(t)
 	ref := integrityInvoice(t, a)
-	a.closedThrough = a.fy().End
+	a.book.CloseThrough(a.fy().End)
 	n := len(a.book.Journals())
 	drive(t, a.routes(), "/sales/receipts/record", url.Values{"date": {"2026-06-02"}, "invoice": {ref}, "amount": {"100.00"}})
 	inv, _ := a.sl.Get(ref)
@@ -136,11 +136,11 @@ func TestRegressionClosedPeriodBlocksDepreciation(t *testing.T) {
 	a := integrityApp(t)
 	h := a.routes()
 	drive(t, h, "/accounting/fixed-assets/acquire", url.Values{"amount": {"100.00"}, "life": {"5"}})
-	a.closedThrough = a.fy().End
+	a.book.CloseThrough(a.fy().End)
 	n := len(a.book.Journals())
 	drive(t, h, "/accounting/fixed-assets/depreciate", nil)
 	if len(a.book.Journals()) != n {
-		t.Errorf("posted %d depreciation journals dated %s into period closed through %s", len(a.book.Journals())-n, a.today, a.closedThrough)
+		t.Errorf("posted %d depreciation journals dated %s into period closed through %s", len(a.book.Journals())-n, a.today, a.book.ClosedThrough())
 	}
 }
 
@@ -188,6 +188,7 @@ func TestRegressionConcurrentSave(t *testing.T) {
 	a.dataPath = filepath.Join(t.TempDir(), "state.json")
 	a.costs = []*costRecord{{Ref: "EXP-1", Net: money.MustParse(money.GBP, "100.00"), Date: ledger.NewDate(2026, time.June, 1)}}
 	var wg sync.WaitGroup
+	defer wg.Wait()
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -198,7 +199,8 @@ func TestRegressionConcurrentSave(t *testing.T) {
 		}
 	}()
 	for i := 0; i < 20; i++ {
-		a.save()
+		if err := a.save(); err != nil {
+			t.Fatal(err)
+		}
 	}
-	wg.Wait()
 }

@@ -82,7 +82,7 @@ type snapshot struct {
 func (a *app) buildSnapshot() snapshot {
 	s := snapshot{
 		Version: snapshotVersion,
-		Co:      a.co, Today: a.today, ClosedThrough: a.closedThrough, Seq: a.seq, MainBank: a.mainBank,
+		Co:      a.co, Today: a.today, ClosedThrough: a.book.ClosedThrough(), Seq: a.seq, MainBank: a.mainBank,
 		Banks: a.banks, Reg: a.reg, Costs: a.costs, StmtLines: a.stmtLines, Employees: a.employees, Assets: a.assets,
 		StatementSpecs: a.statementSpecs,
 		FXBalances:     a.fxBalances,
@@ -173,9 +173,6 @@ func loadSnapshot(path string) (*snapshot, error) {
 	var s snapshot
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, err
-	}
-	if s.Version < 0 || s.Version > snapshotVersion {
-		return nil, fmt.Errorf("unsupported save version %d", s.Version)
 	}
 	return &s, nil
 }
@@ -304,9 +301,9 @@ func (a *app) restore(s *snapshot) error {
 		}
 		assets[i] = &copied
 	}
-	a.co, a.today, a.closedThrough, a.seq, a.mainBank = s.Co, s.Today, s.ClosedThrough, s.Seq, s.MainBank
-	a.banks, a.reg, a.costs, a.employees, a.assets = s.Banks, s.Reg, s.Costs, s.Employees, s.Assets
-	a.assets = assets
+	book.CloseThrough(s.ClosedThrough)
+	a.co, a.today, a.seq, a.mainBank = s.Co, s.Today, s.Seq, s.MainBank
+	a.banks, a.reg, a.costs, a.employees, a.assets = s.Banks, s.Reg, s.Costs, s.Employees, assets
 	a.statementSpecs = s.StatementSpecs
 	a.fxBalances = s.FXBalances
 	a.stmtLines = s.StmtLines
@@ -316,7 +313,6 @@ func (a *app) restore(s *snapshot) error {
 	a.dividends = s.Dividends
 	a.book = book
 
-	book.CloseThrough(s.ClosedThrough)
 	a.entries = entries
 	a.sl, a.purch = sl, purch
 	a.invoiceDocs, a.invoiceOrder = invoiceDocs, invoiceOrder

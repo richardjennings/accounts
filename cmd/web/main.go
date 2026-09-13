@@ -146,8 +146,8 @@ type assetHolding struct {
 type employee struct {
 	Name        string
 	TaxCode     string
-	StudentLoan string // payroll student-loan plan name, or "" for none
-	Salary      money.Money
+	StudentLoan string      // payroll student-loan plan name, or "" for none
+	Salary      money.Money // gross payment per run; older saves labelled this annual salary
 	BIK         money.Money // annual benefits in kind (P11D value)
 	AutoEnrol   bool        // enrolled in the workplace pension
 }
@@ -249,7 +249,6 @@ type app struct {
 	mileageRuns    []mileageRun
 	dividends      []dividendRun      // every dividend declared, for vouchers and minutes
 	approvals      []accountsApproval // one per financial year whose accounts the board approved
-	closedThrough  ledger.Date        // periods on/before this date are closed (locked)
 	lastImport     *importReport
 	fxBalances     map[string]money.Money // currency balances of foreign-currency bank accounts
 	pendingStmt    *pendingStatement
@@ -261,7 +260,8 @@ type app struct {
 // inClosedPeriod reports whether a date falls in a locked (closed) accounting period
 // — i.e. on or before the closed-through date.
 func (a *app) inClosedPeriod(d ledger.Date) bool {
-	return !a.closedThrough.IsZero() && !a.closedThrough.Before(d)
+	closedThrough := a.book.ClosedThrough()
+	return !closedThrough.IsZero() && !closedThrough.Before(d)
 }
 
 // accountsApproval records the board's approval of one financial year's accounts:
@@ -420,7 +420,6 @@ func (a *app) clearBooks() {
 	a.entries, a.seq, a.runs, a.dividends = nil, 0, nil, nil
 	a.mileageRuns = nil
 	a.approvals = nil
-	a.closedThrough = ledger.Date{}
 	a.fxBalances, a.pendingStmt, a.lastImport = nil, nil, nil
 	a.seedShareCapital()
 }
@@ -1145,7 +1144,7 @@ func (a *app) render(w http.ResponseWriter, page string) {
 
 	d := pageData{
 		Nav: nav, Active: page, Section: sectionOf(page), Flash: a.flash,
-		Co: a.co, FY: fy, Today: a.today, ClosedThrough: a.closedThrough,
+		Co: a.co, FY: fy, Today: a.today, ClosedThrough: a.book.ClosedThrough(),
 		YearEndDate: ledger.NewDate(a.today.Year, a.co.YearEndMonth, a.co.YearEndDay),
 		Bank:        a.bal(chart.Bank), Cash: a.bal(chart.Cash),
 		Debtors: a.bal(chart.TradeDebtors), Creditors: a.bal(chart.TradeCreditors),
@@ -1405,7 +1404,7 @@ func (a *app) routes() *http.ServeMux {
 		}
 		a.mu.Lock()
 		fy := a.fy()
-		if !a.closedThrough.IsZero() && !a.closedThrough.Before(fy.End) {
+		if a.inClosedPeriod(fy.End) {
 			a.flash = "⚠ FY" + strconv.Itoa(fy.Number) + " is already closed"
 		} else {
 			j, err := yearend.CloseEntry(a.book, fy.End, a.ref("YE"), chart.RetainedEarnings, chart.Dividends)
@@ -1419,7 +1418,6 @@ func (a *app) routes() *http.ServeMux {
 				return
 			}
 			a.book.CloseThrough(fy.End)
-			a.closedThrough = fy.End
 			a.today = a.co.NextYearStart(a.today)
 			a.flash = fmt.Sprintf("✓ Closed FY%d (to %s); profit carried to retained earnings. Now in FY%d.", fy.Number, fy.End, a.fy().Number)
 		}

@@ -144,6 +144,8 @@
 
 
 {{define "page:pay-yourself.employees"}}<h1>Pay Yourself · Employees</h1>
+<p class="muted">Each payroll run pays the full gross amount shown and adds it to that person's tax-year total. Two runs of £30,000 mean £60,000 gross pay in that tax year.</p>
+<p class="muted">Upgrading from an older save? Amounts previously labelled annual salary are kept unchanged and now mean gross pay per run. Check the amount before running payroll again.</p>
 <div class="row">
  <div class="card"><h3>Add an employee</h3><form method="post" action="/pay-yourself/employees/add">
   <label>Name<input name="name" placeholder="Jane Smith"></label>
@@ -156,7 +158,7 @@
  {{template "payslip" .}}
 </div>
 {{if .Employees}}<div class="card"><h3>Employees</h3>
-<table class="stmt"><tr><th>Name</th><th>Tax code</th><th>Student loan</th><th class="num">Salary</th><th></th></tr>
+<table class="stmt"><tr><th>Name</th><th>Tax code</th><th>Student loan</th><th class="num">Gross pay per run</th><th></th></tr>
 {{range .Employees}}<tr><td>{{.Name}}</td><td>{{.TaxCode}}</td><td>{{.Plan}}</td><td class="num">{{money .Salary}}</td><td><form method="post" action="/pay-yourself/employees/pay"><input type="hidden" name="emp" value="{{.Index}}"><button>Run payroll</button></form></td></tr>{{end}}
 </table>
 <p class="muted">Payroll runs at the rates of the tax year today falls in: {{.TaxYear.Rates.Name}}.</p></div>{{end}}
@@ -679,7 +681,7 @@
  <div class="card"><h3>Declare a dividend</h3><form method="post" action="/pay-yourself/dividends/declare">
   <label>Amount<input name="amount" placeholder="0.00"></label>
   {{template "datefield" .}}<button>Declare</button></form>
-  <p class="muted">Blocked if it exceeds your distributable reserves.</p></div>
+  <p class="muted">Blocked if it exceeds your distributable reserves as at the declaration date. Later profits cannot fund an earlier declaration.</p></div>
  <div class="card"><h3>Pay a declared dividend</h3><form method="post" action="/pay-yourself/dividends/pay">
   <label>Amount<input name="amount" placeholder="0.00"></label>
   {{template "datefield" .}}<button>Pay</button></form></div>
@@ -735,7 +737,7 @@
 {{template "activity" .}}{{end}}
 
 
-{{define "page:company-tax.vat"}}<h1>Company Tax · VAT return <span class="muted">({{.FY}})</span></h1>
+{{define "page:company-tax.vat"}}<h1>Company Tax · VAT return{{with .VATReturn}} <span class="muted">({{.From}} to {{.To}})</span>{{end}}</h1>
 {{if .VATError}}<p class="muted">Cannot produce the VAT return: {{.VATError}}</p>{{else if .VATReturn}}{{with .VATReturn}}<div class="card"><h3>VAT return — {{.From}} to {{.To}}</h3>
 <table class="stmt">
  <tr><td>Box 1 — VAT due on sales and other outputs</td><td class="num">{{money .Box1}}</td></tr>
@@ -1121,7 +1123,7 @@
  <p style="font-size:13px">Present: {{range $i, $d := .Directors}}{{if $i}}, {{end}}{{$d.Name}}{{end}}.</p>
  <ol>
   <li>The chair confirmed that a quorum was present and that the meeting was called to consider a dividend.</li>
-  <li>The directors considered the company's financial position. They noted distributable reserves of <b>{{money .Run.Available}}</b> for the financial year ending {{.FYEnd}}, which cover the proposed dividend.</li>
+  <li>The directors considered the company's financial position. They noted distributable reserves of <b>{{money .Run.Available}}</b> as at {{.Run.Date}}, in the financial year ending {{.FYEnd}}, which cover the proposed dividend.</li>
   <li>IT WAS RESOLVED that an interim dividend of <b>{{money .Run.Total}}</b> ({{.Run.PerShare}}) be declared on the ordinary shares of the company, payable on {{.Run.Date}} to the members on the register on that date:
    <table class="doc"><tr><th>Member</th><th class="num">Shares</th><th class="num">Dividend</th></tr>
    {{range .Run.Awards}}<tr><td>{{.Member.Name}}</td><td class="num">{{.Member.Shares}}</td><td class="num">{{money .Amount}}</td></tr>{{end}}

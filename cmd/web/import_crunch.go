@@ -573,11 +573,11 @@ func (ap *batchApplier) bills(bills []importer.Bill) {
 		if b.Credited.IsPositive() {
 			if err := a.purch.ValidateAllocation(ref, b.Credited); err != nil {
 				ap.issue("credit for %s: %v", ref, err)
-				continue
-			}
-			cnet, cvat := vatShare(b.Credited, net, vat)
-			if ap.post("expenses", "Supplier credit notes", expenses.CreditNote{Date: b.Date, Ref: a.ref("PCN"), Supplier: b.Supplier, Amount: cnet, VAT: cvat, Expense: account}) {
-				a.purch.Credit(ref, b.Credited)
+			} else {
+				cnet, cvat := vatShare(b.Credited, net, vat)
+				if ap.post("expenses", "Supplier credit notes", expenses.CreditNote{Date: b.Date, Ref: a.ref("PCN"), Supplier: b.Supplier, Amount: cnet, VAT: cvat, Expense: account}) {
+					a.purch.Credit(ref, b.Credited)
+				}
 			}
 		}
 		if !b.Paid.IsPositive() {

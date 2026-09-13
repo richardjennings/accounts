@@ -379,7 +379,7 @@ func toolCompany(s *mcpServer, _ json.RawMessage) (any, error) {
 		RegisteredOffice: co.RegisteredOffice, RegisteredEmail: co.RegisteredEmail,
 		Incorporated: dateStr(co.Incorporated), YearEnd: co.YearEndLabel(),
 		Currency: co.Currency.Code, VATRegistered: co.VATRegistered, VATNumber: co.VATNumber,
-		Today: a.today.String(), FinancialYear: fyView(a.fy()), ClosedThrough: dateStr(a.closedThrough),
+		Today: a.today.String(), FinancialYear: fyView(a.fy()), ClosedThrough: dateStr(a.book.ClosedThrough()),
 		Source:                    s.source(),
 		Officers:                  []mcpOfficer{},
 		Shareholders:              []mcpMember{},

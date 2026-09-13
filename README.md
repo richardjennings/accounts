@@ -25,7 +25,7 @@ decimal  →  money  →  ledger  →  ┬─ chart      charts of accounts (dat
 ```
 
 Dependencies point downward only. Each layer is testable in isolation, and the
-accounting standard (FRS 105 vs FRS 102 §1A) lives in the upper layers — the
+accounting standard (FRS 105 vs FRS 102 section 1A) lives in the upper layers — the
 `ledger` core is deliberately framework- and jurisdiction-neutral.
 
 | Package | Status | Purpose |
@@ -82,7 +82,7 @@ against the complete taxonomy or recipient filing rules. No document is submitte
 - **Import:** paste or upload CSV, or upload a whole Crunch export archive (Company →
   Import). A foreign-currency invoice is posted at its value in the company currency;
   the currency figure is kept on the invoice line.
-- **Deferred:** FRS 102 §1A, complete taxonomy/filing validation, broader FX workflows,
+- **Deferred:** FRS 102 section 1A, complete taxonomy/filing validation, broader FX workflows,
   and guided interactive scenarios.
 
 ## Design principles

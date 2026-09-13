@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -117,7 +118,7 @@ func TestRejectedOperationsLeaveRelatedRecordsUnchanged(t *testing.T) {
 	} {
 		t.Run(c.path, func(t *testing.T) {
 			a := integrityApp(t)
-			a.closedThrough = ledger.NewDate(2026, 5, 31)
+			a.book.CloseThrough(ledger.NewDate(2026, 5, 31))
 			n := len(a.entries)
 			drive(t, a.routes(), c.path, c.form)
 			if len(a.entries) != n || len(a.sl.Invoices()) != 0 || len(a.purch.Bills()) != 0 || len(a.costs) != 0 || len(a.assets) != 0 {
@@ -288,6 +289,55 @@ func TestVATUsesConfiguredQuarter(t *testing.T) {
 	}
 	if r.From.String() != "2026-03-01" || r.To.String() != "2026-05-31" || r.Box1.String() != "GBP 20.00" || r.Box6.String() != "GBP 100.00" {
 		t.Fatalf("wrong staggered VAT return: %+v", r)
+	}
+}
+
+func TestImportBillCreditAndPaymentValidateIndependently(t *testing.T) {
+	for _, paidBy := range []importer.PaidBy{importer.Bank, importer.PettyCash, importer.Director} {
+		for _, tc := range []struct {
+			name, credited, paid, wantCredit, wantPaid, wantOutstanding string
+			issues                                                      int
+		}{
+			{"rejected credit keeps payment", "121.00", "120.00", "0.00", "120.00", "0.00", 1},
+			{"rejected credit and payment", "121.00", "121.00", "0.00", "0.00", "120.00", 2},
+			{"valid credit and payment", "30.00", "90.00", "30.00", "90.00", "0.00", 0},
+		} {
+			t.Run(tc.name+"/"+strconv.Itoa(int(paidBy)), func(t *testing.T) {
+				a := integrityApp(t)
+				amount := func(s string) money.Money { return money.MustParse(money.GBP, s) }
+				cashBefore, bankBefore, loanBefore := a.bal(chart.Cash), a.bal(chart.Bank), a.bal(chart.DirectorsLoan)
+				rep := a.applyBatch("test", &importer.Batch{VATCharged: true, Bills: []importer.Bill{{
+					Date: a.today, Supplier: "Supplier", Net: amount("100.00"), VAT: amount("20.00"),
+					Credited: amount(tc.credited), Paid: amount(tc.paid), PaidBy: paidBy,
+				}}}, nil)
+				if len(rep.Issues) != tc.issues {
+					t.Fatalf("issues = %v, want %d", rep.Issues, tc.issues)
+				}
+				bills := a.purch.Bills()
+				if len(bills) != 1 {
+					t.Fatalf("bills = %d, want 1", len(bills))
+				}
+				bill := bills[0]
+				if !bill.Credited().Equal(amount(tc.wantCredit)) || !bill.Paid().Equal(amount(tc.wantPaid)) || !bill.Outstanding().Equal(amount(tc.wantOutstanding)) {
+					t.Fatalf("credited=%s paid=%s outstanding=%s", bill.Credited(), bill.Paid(), bill.Outstanding())
+				}
+				if !bill.Outstanding().Equal(a.bal(chart.TradeCreditors)) {
+					t.Fatal("bill outstanding differs from creditors control")
+				}
+				var movement money.Money
+				switch paidBy {
+				case importer.Bank:
+					movement, _ = bankBefore.Sub(a.bal(chart.Bank))
+				case importer.PettyCash:
+					movement, _ = cashBefore.Sub(a.bal(chart.Cash))
+				case importer.Director:
+					movement, _ = a.bal(chart.DirectorsLoan).Sub(loanBefore)
+				}
+				if !movement.Equal(amount(tc.wantPaid)) {
+					t.Fatalf("payment movement = %s, want %s", movement, tc.wantPaid)
+				}
+			})
+		}
 	}
 }
 

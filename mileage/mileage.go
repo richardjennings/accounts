@@ -41,6 +41,16 @@ type RateTable struct {
 	BicycleRate    decimal.Decimal
 }
 
+// Year2025_26 holds the AMAP rates for 2025/26.
+var Year2025_26 = RateTable{
+	Name:           "2025/26",
+	FirstMiles:     10000,
+	CarFirst:       decimal.MustParse("0.45"),
+	CarAfter:       decimal.MustParse("0.25"),
+	MotorcycleRate: decimal.MustParse("0.24"),
+	BicycleRate:    decimal.MustParse("0.20"),
+}
+
 // Year2026_27 holds the AMAP rates for 2026/27, verified against HMRC (the car/van
 // first-10,000-mile rate increased from 45p to 55p with effect from 6 April 2026).
 var Year2026_27 = RateTable{
@@ -52,13 +62,13 @@ var Year2026_27 = RateTable{
 	BicycleRate:    decimal.MustParse("0.20"),
 }
 
-// RatesOn selects the mileage rates in force on the journey date.
+// RatesOn selects the mileage rates for the journey date. Dates outside the
+// bundled tax years use the nearest table.
 func RatesOn(date ledger.Date) RateTable {
-	rt := Year2026_27
 	if date.Before(ledger.NewDate(2026, time.April, 6)) {
-		rt.Name, rt.CarFirst = "before 6 April 2026", decimal.MustParse("0.45")
+		return Year2025_26
 	}
-	return rt
+	return Year2026_27
 }
 
 // Claim returns the approved allowance for miles driven in v, given priorMiles

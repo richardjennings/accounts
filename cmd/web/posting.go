@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/richardjennings/accounts/chart"
 	"github.com/richardjennings/accounts/explain"
 	"github.com/richardjennings/accounts/ledger"
@@ -57,9 +55,6 @@ func (a *app) postOperation(section string, op themes.Operation) error {
 	j, err := op.Journal()
 	if err != nil {
 		return err
-	}
-	if a.inClosedPeriod(j.Date()) {
-		return fmt.Errorf("%s is in a closed period — use a later date", j.Date())
 	}
 	if err := a.book.Post(j); err != nil {
 		return err
