@@ -96,7 +96,7 @@ func TestImportReplacesBooks(t *testing.T) {
 	for _, code := range []string{"1201", "1202", "1203", "1204", "1205"} {
 		a.fxBalances[code] = five
 	}
-	a.closedThrough = ledger.NewDate(2026, time.April, 30)
+	a.book.CloseThrough(ledger.NewDate(2026, time.April, 30))
 
 	uploadCrunch(t, h, true)
 
@@ -114,7 +114,7 @@ func TestImportReplacesBooks(t *testing.T) {
 			t.Error("old posting survived the replace")
 		}
 	}
-	if !a.closedThrough.IsZero() {
+	if !a.book.ClosedThrough().IsZero() {
 		t.Error("closed period survived the replace")
 	}
 	var usd bankAcct

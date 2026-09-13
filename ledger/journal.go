@@ -22,6 +22,7 @@ type Journal struct {
 	narrative string
 	ref       string // optional source reference, e.g. "INV-1001"
 	postings  []Posting
+	closing   bool // transfers balances between periods; excluded from trading activity
 }
 
 // NewJournal validates and constructs a journal. It requires at least two
@@ -72,6 +73,12 @@ func (j Journal) WithRef(ref string) Journal {
 	return j
 }
 
+// AsClosing marks a balance-transfer journal. Balances include it; activity
+// reports omit it so closing a period cannot erase that period's trading figures.
+func (j Journal) AsClosing() Journal { j.closing = true; return j }
+
+func (j Journal) IsClosing() bool { return j.closing }
+
 // Reverse returns the reversing journal: the same postings with debit and credit
 // swapped, on a new date. Because the original balances, so does the reversal —
 // this is how a posted journal is corrected without mutating it.
@@ -80,7 +87,7 @@ func (j Journal) Reverse(date Date, narrative string) Journal {
 	for i, p := range j.postings {
 		rev[i] = Posting{Account: p.Account, Side: p.Side.opposite(), Amount: p.Amount}
 	}
-	return Journal{date: date, narrative: narrative, ref: j.ref, postings: rev}
+	return Journal{date: date, narrative: narrative, ref: j.ref, postings: rev, closing: j.closing}
 }
 
 // Date returns the journal date.

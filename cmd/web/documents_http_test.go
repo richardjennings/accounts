@@ -61,17 +61,17 @@ func TestVATReturnDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := a.routes()
-	drive(t, h, "/accounting/journals/post", url.Values{"date": {"2026-05-01"}, "debit": {chart.Bank}, "credit": {chart.VAT}, "amount": {"200.00"}, "narrative": {"output VAT"}})
+	drive(t, h, "/sales/cash/record", url.Values{"date": {"2026-05-01"}, "amount": {"1000.00"}, "vat": {"standard"}})
 
 	doc := page(t, h, "/company-tax/vat/document")
-	for _, s := range []string{"VAT RETURN", "GB123456789", "Period 2026-04-01 to 2027-03-31", "£200.00", "to pay to HMRC"} {
+	for _, s := range []string{"VAT RETURN", "GB123456789", "Period 2026-04-01 to 2026-06-30", "£200.00", "to pay to HMRC"} {
 		if !strings.Contains(doc, s) {
 			t.Errorf("VAT return document lacks %q", s)
 		}
 	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/company-tax/vat/document?download=1", nil))
-	if cd := rec.Header().Get("Content-Disposition"); !strings.Contains(cd, `attachment; filename="vat-return-2027-03-31.html"`) {
+	if cd := rec.Header().Get("Content-Disposition"); !strings.Contains(cd, `attachment; filename="vat-return-2026-06-30.html"`) {
 		t.Errorf("download disposition = %q", cd)
 	}
 	if !strings.Contains(page(t, h, "/company-tax/vat"), "/company-tax/vat/document?download=1") {

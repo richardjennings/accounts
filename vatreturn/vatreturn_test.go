@@ -1,6 +1,7 @@
 package vatreturn
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -75,5 +76,39 @@ func TestReclaimPosition(t *testing.T) {
 	}
 	if r.Box5.String() != "GBP 80.00" || !r.Box5Reclaim { // 100 input − 20 output = 80 reclaim
 		t.Errorf("Box5 = %s reclaim=%v, want GBP 80.00 reclaim", r.Box5, r.Box5Reclaim)
+	}
+}
+
+func TestMixedSupplyJournalIdentifiesEntryAndBlocksReturn(t *testing.T) {
+	for _, ref := range []string{"MAN-1", ""} {
+		t.Run(ref, func(t *testing.T) {
+			book, err := chart.NewUKMicroLtdBook(money.GBP)
+			if err != nil {
+				t.Fatal(err)
+			}
+			on := ledger.NewDate(2026, time.May, 2)
+			post(t, book, sales.CashSale{Date: on, Amount: gbp("100.00"), VAT: gbp("20.00")})
+			j, err := ledger.NewJournal(on, "Manual combined sale and purchase",
+				ledger.Posting{Account: chart.Bank, Side: ledger.Debit, Amount: gbp("60.00")},
+				ledger.Posting{Account: chart.Travel, Side: ledger.Debit, Amount: gbp("50.00")},
+				ledger.Posting{Account: chart.Sales, Side: ledger.Credit, Amount: gbp("100.00")},
+				ledger.Posting{Account: chart.VAT, Side: ledger.Credit, Amount: gbp("10.00")},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := book.Post(j.WithRef(ref)); err != nil {
+				t.Fatal(err)
+			}
+			_, err = Compute(book, on, on, Options{VATControl: chart.VAT})
+			if err == nil {
+				t.Fatal("produced a return containing ambiguous VAT")
+			}
+			for _, want := range []string{ref, on.String(), j.Narrative(), "split it into separate sales and purchase journals"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error %q lacks %q", err, want)
+				}
+			}
+		})
 	}
 }

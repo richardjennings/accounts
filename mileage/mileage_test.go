@@ -48,6 +48,35 @@ func TestConfigurableRate(t *testing.T) {
 	}
 }
 
+func TestJourneyDateSelectsMileageTable(t *testing.T) {
+	for _, tc := range []struct {
+		on           ledger.Date
+		name, carPay string
+	}{
+		{ledger.NewDate(2026, time.April, 5), "2025/26", "GBP 5000.00"},
+		{ledger.NewDate(2026, time.April, 6), "2026/27", "GBP 6000.00"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rates := RatesOn(tc.on)
+			if rates.Name != tc.name {
+				t.Fatalf("table = %s, want %s", rates.Name, tc.name)
+			}
+			for _, claim := range []struct {
+				vehicle Vehicle
+				want    string
+			}{
+				{Car, tc.carPay},
+				{Motorcycle, "GBP 2880.00"},
+				{Bicycle, "GBP 2400.00"},
+			} {
+				if got := Claim(12000, 0, claim.vehicle, rates); got.String() != claim.want {
+					t.Errorf("vehicle %d allowance = %s, want %s", claim.vehicle, got, claim.want)
+				}
+			}
+		})
+	}
+}
+
 func TestReimbursementPosts(t *testing.T) {
 	book, err := chart.NewUKMicroLtdBook(money.GBP)
 	if err != nil {

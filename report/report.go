@@ -56,7 +56,7 @@ func NewProfitAndLoss(book *ledger.Book, from, to ledger.Date) (ProfitAndLoss, e
 		if a.Type != ledger.Income && a.Type != ledger.Expense {
 			continue
 		}
-		amt, err := book.MovementBetween(a.Code, from, to)
+		amt, err := book.ActivityBetween(a.Code, from, to)
 		if err != nil {
 			return ProfitAndLoss{}, err
 		}

@@ -75,8 +75,8 @@ func (a *app) fxRoutes(mux *http.ServeMux) {
 			if a.banks[i].Code != code {
 				continue
 			}
-			a.banks[i].Currency = ccy
 			if ccy == "" {
+				a.banks[i].Currency = ccy
 				delete(a.fxBalances, code)
 				a.flash = "✓ " + a.banks[i].Name + " is a " + a.co.Currency.Code + " account"
 			} else {
@@ -93,6 +93,7 @@ func (a *app) fxRoutes(mux *http.ServeMux) {
 				if a.fxBalances == nil {
 					a.fxBalances = map[string]money.Money{}
 				}
+				a.banks[i].Currency = ccy
 				a.fxBalances[code] = bal
 				a.flash = fmt.Sprintf("✓ %s is a %s account holding %s, carried in the books at %s", a.banks[i].Name, ccy, fmtMoney(bal), fmtMoney(a.bal(code)))
 			}
@@ -130,8 +131,7 @@ func (a *app) fxRoutes(mux *http.ServeMux) {
 			share := new(big.Rat).Quo(sold.Amount().Rat(), bal.Amount().Rat())
 			carried = money.FromRat(a.co.Currency, new(big.Rat).Mul(carried.Amount().Rat(), share), money.HalfUp)
 		}
-		a.addFX(from, sold.Neg())
-		return banking.Conversion{Date: a.date(r), Ref: a.ref("FX"), Proceeds: proceeds, Carried: carried, From: from, To: to},
+		return afterPost(banking.Conversion{Date: a.date(r), Ref: a.ref("FX"), Proceeds: proceeds, Carried: carried, From: from, To: to}, func() { a.addFX(from, sold.Neg()) }),
 			fmt.Sprintf("Converted %s to %s", fmtMoney(sold), fmtMoney(proceeds)), nil
 	}))
 }
@@ -176,9 +176,11 @@ func (a *app) foreignReceipt(r *http.Request, invoiceRef string, outstanding mon
 	if err != nil {
 		return nil, "", err
 	}
-	if err := a.sl.Allocate(invoiceRef, settled); err != nil {
+	if err := a.sl.ValidateAllocation(invoiceRef, settled); err != nil {
 		return nil, "", err
 	}
-	a.addFX(bank, ccyAmount)
-	return journalOp{j: j.WithRef(ref)}, fmt.Sprintf("Receipt of %s (%s) against %s", fmtMoney(ccyAmount), fmtMoney(value), invoiceRef), nil
+	return afterPost(journalOp{j: j.WithRef(ref)}, func() {
+		_ = a.sl.Allocate(invoiceRef, settled)
+		a.addFX(bank, ccyAmount)
+	}), fmt.Sprintf("Receipt of %s (%s) against %s", fmtMoney(ccyAmount), fmtMoney(value), invoiceRef), nil
 }

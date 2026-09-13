@@ -248,20 +248,21 @@ func (c CashSale) Journal() (ledger.Journal, error) {
 // CreditNote reverses or reduces a sale (e.g. a refund): debit sales income, credit
 // what it is set against — trade debtors, or the bank if refunded in cash.
 type CreditNote struct {
-	Date    ledger.Date
-	Ref     string
-	Amount  money.Money
-	Income  string // defaults to chart.Sales
-	Against string // debtors or bank; defaults to chart.TradeDebtors
+	Date       ledger.Date
+	Ref        string
+	Amount     money.Money // net
+	VAT        money.Money
+	VATAccount string
+	Income     string // defaults to chart.Sales
+	Against    string // debtors or bank; defaults to chart.TradeDebtors
 }
 
 func (c CreditNote) Journal() (ledger.Journal, error) {
-	j, err := ledger.NewJournal(c.Date, "Credit note "+c.Ref,
-		ledger.Posting{Account: acct(c.Income, chart.Sales), Side: ledger.Debit, Amount: c.Amount},
-		ledger.Posting{Account: acct(c.Against, chart.TradeDebtors), Side: ledger.Credit, Amount: c.Amount},
-	)
+	// Build the sale and reverse it, including its VAT leg.
+	j, err := (Invoice{Date: c.Date, Ref: c.Ref, Amount: c.Amount, VAT: c.VAT,
+		Income: c.Income, Debtors: acct(c.Against, chart.TradeDebtors), VATAccount: c.VATAccount}).Journal()
 	if err != nil {
 		return ledger.Journal{}, err
 	}
-	return j.WithRef(c.Ref), nil
+	return j.Reverse(c.Date, "Credit note "+c.Ref), nil
 }

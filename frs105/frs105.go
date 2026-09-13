@@ -7,11 +7,10 @@
 // It builds the statutory balance-sheet layout (Companies Act 2006 micro-entity
 // format), a summarised profit & loss account, the comparative figures for the
 // year before, the average-employees note and the fixed statutory statements,
-// from the ledger. In keeping with the product, it GENERATES the document
-// perfectly but transmits nothing — there is no Companies House or HMRC
-// submission.
+// from the ledger. It generates an educational document and does not transmit
+// anything to Companies House or HMRC.
 //
-// Honesty note: the figures and structure are correct, and the inline XBRL is
+// Conformance scope: the inline XBRL is
 // well-formed and tagged with representative FRC-taxonomy concepts. It is not
 // claimed to pass full FRC taxonomy validation — that would need the complete
 // taxonomy and every mandatory tag, which is beyond an educational model.
@@ -133,9 +132,9 @@ func figures(book *ledger.Book, fy company.FinancialYear) (Figures, error) {
 
 	// Profit & loss account.
 	f.Turnover = pl.TotalIncome
-	f.CostOfSales, _ = book.MovementBetween(costOfSales, fy.Start, fy.End)
+	f.CostOfSales, _ = book.ActivityBetween(costOfSales, fy.Start, fy.End)
 	f.GrossProfit, _ = f.Turnover.Sub(f.CostOfSales)
-	f.Tax, _ = book.MovementBetween(corpTaxCharge, fy.Start, fy.End)
+	f.Tax, _ = book.ActivityBetween(corpTaxCharge, fy.Start, fy.End)
 	// Admin expenses are every expense except cost of sales and the tax charge.
 	adminSubs, _ := f.CostOfSales.Add(f.Tax)
 	admin, err := pl.TotalExpenses.Sub(adminSubs)

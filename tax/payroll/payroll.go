@@ -325,6 +325,26 @@ func Compute(in Input) (Result, error) {
 		return Result{}, err
 	}
 	incomeTax := bandedTax(taxablePay, allowance, rt.Bands, cur)
+	// These codes apply one rate to all pay, rather than removing the allowance
+	// and then applying the progressive bands (0T does the latter).
+	code := strings.ToUpper(strings.TrimSpace(in.TaxCode))
+	var flat *decimal.Decimal
+	if len(rt.Bands) >= 3 {
+		switch code {
+		case "BR":
+			flat = &rt.Bands[0].Rate
+		case "D0":
+			flat = &rt.Bands[1].Rate
+		case "D1":
+			flat = &rt.Bands[len(rt.Bands)-1].Rate
+		}
+	}
+	if flat != nil {
+		incomeTax, err = taxablePay.Mul(*flat, money.HalfUp)
+		if err != nil {
+			return Result{}, err
+		}
+	}
 	empNIC := employeeNIC(in.GrossAnnual, rt, cur) // employee NI on cash pay only
 	erNIC := employerNIC(in.GrossAnnual, rt, in.EmploymentAllowance, cur)
 	class1A := classOneA(bik, rt, cur) // employer NIC on benefits in kind
