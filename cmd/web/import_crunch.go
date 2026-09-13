@@ -477,6 +477,12 @@ func (ap *batchApplier) creditNotes(cns []importer.CreditNote) {
 		}
 		narr := "Credit note " + ref
 		appRef, known := ap.refs[cn.Invoice]
+		if known {
+			if err := a.sl.ValidateAllocation(appRef, cn.Gross); err != nil {
+				ap.issue("credit note %s: %v", ref, err)
+				continue
+			}
+		}
 		net, vat := cn.Gross, money.Zero(ap.cur)
 		if doc := a.invoiceDocs[appRef]; known && doc != nil {
 			net, vat = vatShare(cn.Gross, doc.Net, doc.VAT)
@@ -488,7 +494,7 @@ func (ap *batchApplier) creditNotes(cns []importer.CreditNote) {
 		}
 		postings = append(postings, ledger.Posting{Account: chart.TradeDebtors, Side: ledger.Credit, Amount: cn.Gross})
 		if ap.raw("sales", "Credit notes", cn.Date, ref, narr, postings...) && known {
-			if err := a.sl.Allocate(appRef, cn.Gross); err != nil {
+			if err := a.sl.Credit(appRef, cn.Gross); err != nil {
 				ap.issue("credit note %s against %s: %v", cn.Ref, cn.Invoice, err)
 			}
 		}
@@ -500,6 +506,12 @@ func (ap *batchApplier) receipts(rs []importer.Receipt) {
 	for _, r := range rs {
 		ref := a.ref("REC")
 		bank := ap.code(r.Bank, chart.Cash)
+		if appRef, ok := ap.refs[r.Invoice]; ok {
+			if err := a.sl.ValidateAllocation(appRef, r.Amount); err != nil {
+				ap.issue("receipt %s: %v", ref, err)
+				continue
+			}
+		}
 		if !ap.post("sales", "Receipts", sales.Receipt{Date: r.Date, Ref: ref, Amount: r.Amount, Bank: bank}) {
 			continue
 		}
@@ -559,12 +571,20 @@ func (ap *batchApplier) bills(bills []importer.Bill) {
 		}
 		a.costs = append(a.costs, &costRecord{Ref: ref, Desc: desc, Date: b.Date, Net: net, Recharged: b.Recharge != ""})
 		if b.Credited.IsPositive() {
+			if err := a.purch.ValidateAllocation(ref, b.Credited); err != nil {
+				ap.issue("credit for %s: %v", ref, err)
+				continue
+			}
 			cnet, cvat := vatShare(b.Credited, net, vat)
 			if ap.post("expenses", "Supplier credit notes", expenses.CreditNote{Date: b.Date, Ref: a.ref("PCN"), Supplier: b.Supplier, Amount: cnet, VAT: cvat, Expense: account}) {
-				a.purch.Allocate(ref, b.Credited)
+				a.purch.Credit(ref, b.Credited)
 			}
 		}
 		if !b.Paid.IsPositive() {
+			continue
+		}
+		if err := a.purch.ValidateAllocation(ref, b.Paid); err != nil {
+			ap.issue("payment for %s: %v", ref, err)
 			continue
 		}
 		var paid bool

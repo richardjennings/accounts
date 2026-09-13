@@ -19,12 +19,16 @@ type Bill struct {
 	Date     ledger.Date
 	Total    money.Money
 	paid     money.Money
+	credited money.Money
 }
 
 func (b *Bill) Paid() money.Money { return b.paid }
 
+func (b *Bill) Credited() money.Money { return b.credited }
+
 func (b *Bill) Outstanding() money.Money {
 	o, _ := b.Total.Sub(b.paid)
+	o, _ = o.Sub(b.credited)
 	return o
 }
 
@@ -32,6 +36,10 @@ func (b *Bill) Settled() bool { return !b.Outstanding().IsPositive() }
 
 func (b *Bill) Status() string {
 	switch {
+	case b.credited.IsPositive() && b.Settled():
+		return "Settled"
+	case b.credited.IsPositive() && b.paid.IsZero():
+		return "Part-credited"
 	case b.paid.IsZero():
 		return "Open"
 	case b.Settled():
@@ -57,7 +65,7 @@ func (l *Ledger) Record(ref, supplier string, date ledger.Date, total money.Mone
 	if !total.IsPositive() {
 		return nil, fmt.Errorf("purchaseledger: bill total must be positive")
 	}
-	b := &Bill{Ref: ref, Supplier: supplier, Date: date, Total: total, paid: money.Zero(total.Currency())}
+	b := &Bill{Ref: ref, Supplier: supplier, Date: date, Total: total, paid: money.Zero(total.Currency()), credited: money.Zero(total.Currency())}
 	l.order = append(l.order, b)
 	l.byRef[ref] = b
 	return b, nil
@@ -82,7 +90,7 @@ func (l *Ledger) Outstanding() []*Bill {
 
 // Allocate records a payment of amount against a bill, capped at what is
 // outstanding (you cannot pay more than is owed).
-func (l *Ledger) Allocate(ref string, amount money.Money) error {
+func (l *Ledger) ValidateAllocation(ref string, amount money.Money) error {
 	b, ok := l.byRef[ref]
 	if !ok {
 		return fmt.Errorf("purchaseledger: no bill %s", ref)
@@ -90,13 +98,32 @@ func (l *Ledger) Allocate(ref string, amount money.Money) error {
 	if !amount.IsPositive() {
 		return fmt.Errorf("purchaseledger: payment must be positive")
 	}
-	if cmp, _ := amount.Cmp(b.Outstanding()); cmp > 0 {
-		return fmt.Errorf("payment of %s exceeds the %s outstanding on %s", amount, b.Outstanding(), ref)
-	}
-	np, err := b.paid.Add(amount)
+	cmp, err := amount.Cmp(b.Outstanding())
 	if err != nil {
 		return err
 	}
-	b.paid = np
+	if cmp > 0 {
+		return fmt.Errorf("payment of %s exceeds the %s outstanding on %s", amount, b.Outstanding(), ref)
+	}
+	return nil
+}
+
+// Allocate records a payment after checking currency and remaining balance.
+func (l *Ledger) Allocate(ref string, amount money.Money) error {
+	if err := l.ValidateAllocation(ref, amount); err != nil {
+		return err
+	}
+	v := l.byRef[ref]
+	v.paid, _ = v.paid.Add(amount)
+	return nil
+}
+
+// Credit reduces the outstanding debt without recording a cash payment.
+func (l *Ledger) Credit(ref string, amount money.Money) error {
+	if err := l.ValidateAllocation(ref, amount); err != nil {
+		return err
+	}
+	v := l.byRef[ref]
+	v.credited, _ = v.credited.Add(amount)
 	return nil
 }

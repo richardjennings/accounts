@@ -938,6 +938,7 @@ type mcpInvoice struct {
 	Date        string `json:"date"`
 	Total       string `json:"total"`
 	Paid        string `json:"paid"`
+	Credited    string `json:"credited"`
 	Outstanding string `json:"outstanding"`
 	Status      string `json:"status"`
 }
@@ -973,7 +974,7 @@ func toolInvoices(s *mcpServer, args json.RawMessage) (any, error) {
 	rows := make([]mcpInvoice, 0, len(list))
 	total, outstanding := money.Zero(a.co.Currency), money.Zero(a.co.Currency)
 	for _, inv := range list {
-		rows = append(rows, mcpInvoice{when: inv.Date, Ref: inv.Ref, Customer: inv.Customer, Date: inv.Date.String(), Total: amt(inv.Total), Paid: amt(inv.Paid()), Outstanding: amt(inv.Outstanding()), Status: inv.Status()})
+		rows = append(rows, mcpInvoice{when: inv.Date, Ref: inv.Ref, Customer: inv.Customer, Date: inv.Date.String(), Total: amt(inv.Total), Paid: amt(inv.Paid()), Credited: amt(inv.Credited()), Outstanding: amt(inv.Outstanding()), Status: inv.Status()})
 		total, _ = total.Add(inv.Total)
 		outstanding, _ = outstanding.Add(inv.Outstanding())
 	}
@@ -996,7 +997,7 @@ func toolBills(s *mcpServer, args json.RawMessage) (any, error) {
 	rows := make([]mcpInvoice, 0, len(list))
 	total, outstanding := money.Zero(a.co.Currency), money.Zero(a.co.Currency)
 	for _, b := range list {
-		rows = append(rows, mcpInvoice{when: b.Date, Ref: b.Ref, Supplier: b.Supplier, Date: b.Date.String(), Total: amt(b.Total), Paid: amt(b.Paid()), Outstanding: amt(b.Outstanding()), Status: b.Status()})
+		rows = append(rows, mcpInvoice{when: b.Date, Ref: b.Ref, Supplier: b.Supplier, Date: b.Date.String(), Total: amt(b.Total), Paid: amt(b.Paid()), Credited: amt(b.Credited()), Outstanding: amt(b.Outstanding()), Status: b.Status()})
 		total, _ = total.Add(b.Total)
 		outstanding, _ = outstanding.Add(b.Outstanding())
 	}

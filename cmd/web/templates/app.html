@@ -147,10 +147,10 @@
 <div class="row">
  <div class="card"><h3>Add an employee</h3><form method="post" action="/pay-yourself/employees/add">
   <label>Name<input name="name" placeholder="Jane Smith"></label>
-  <label>Annual salary<input name="amount" placeholder="30000.00"></label>
+  <label>Gross pay per run<input name="amount" placeholder="30000.00"></label>
   <label>Tax code<input name="taxcode" value="1257L"></label>
   <label>Student loan<select name="plan"><option value="">None</option>{{range .StudentLoanPlanNames}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
-  <label>Benefits in kind (P11D, optional)<input name="bik" placeholder="0.00"></label>
+  <label>Annual benefits in kind (P11D, optional)<input name="bik" placeholder="0.00"></label>
   <label class="chk"><input type="checkbox" name="pension" value="1"> Enrol in workplace pension</label>
   <button>Add employee</button></form></div>
  {{template "payslip" .}}
@@ -416,8 +416,8 @@
   <div class="kv"><span>Owed by customers</span><b>{{money .Debtors}}</b></div></div>
 </div>
 {{if .Invoices}}<div class="card"><h3>Invoices</h3>
-<table class="stmt"><tr><th>Date</th><th>Ref</th><th>Customer</th><th class="num">Total</th><th class="num">Paid</th><th class="num">Outstanding</th><th>Status</th></tr>
-{{range .Invoices}}<tr><td class="date">{{.Date}}</td><td class="ref"><a href="/sales/invoices/view?ref={{.Ref}}">{{.Ref}}</a></td><td>{{.Customer}}</td><td class="num">{{money .Total}}</td><td class="num">{{money .Paid}}</td><td class="num">{{money .Outstanding}}</td><td>{{.Status}}</td></tr>{{end}}
+<table class="stmt"><tr><th>Date</th><th>Ref</th><th>Customer</th><th class="num">Total</th><th class="num">Paid</th><th class="num">Credited</th><th class="num">Outstanding</th><th>Status</th></tr>
+{{range .Invoices}}<tr><td class="date">{{.Date}}</td><td class="ref"><a href="/sales/invoices/view?ref={{.Ref}}">{{.Ref}}</a></td><td>{{.Customer}}</td><td class="num">{{money .Total}}</td><td class="num">{{money .Paid}}</td><td class="num">{{money .Credited}}</td><td class="num">{{money .Outstanding}}</td><td>{{.Status}}</td></tr>{{end}}
 </table><p class="muted">Click an invoice reference to open the printable itemised invoice.</p></div>{{end}}{{end}}
 
 
@@ -455,7 +455,9 @@
 {{define "page:sales.credit"}}<h1>Sales · Credit notes</h1>
 <div class="row">
  <div class="card"><h3>Issue a credit note</h3><form method="post" action="/sales/credit-notes/record">
-  <label>Amount<input name="amount" placeholder="0.00"></label>
+  <label>Invoice<select name="invoice" required>{{range .OpenInvoices}}<option value="{{.Ref}}">{{.Ref}} — {{.Customer}} ({{money .Outstanding}} outstanding)</option>{{end}}</select></label>
+  <label>Net credit amount<input name="amount" placeholder="0.00"></label>
+  {{if $.Co.VATRegistered}}<label>VAT (use the original invoice rate)<select name="vat">{{range $.VATRates}}<option value="{{.Code}}">{{.Label}}</option>{{end}}</select></label>{{end}}
   {{template "datefield" .}}<button>Issue credit note</button></form></div>
  <div class="card snap"><h3>At a glance</h3>
   <div class="kv"><span>Sales this year</span><b>{{money .SalesTotal}}</b></div>
@@ -476,8 +478,8 @@
   <div class="kv"><span>Expenses this year</span><b>{{money .ExpensesTotal}}</b></div></div>
 </div>
 {{if .Bills}}<div class="card"><h3>Bills</h3>
-<table class="stmt"><tr><th>Date</th><th>Ref</th><th>Supplier</th><th class="num">Total</th><th class="num">Paid</th><th class="num">Outstanding</th><th>Status</th></tr>
-{{range .Bills}}<tr><td class="date">{{.Date}}</td><td class="ref">{{.Ref}}</td><td>{{.Supplier}}</td><td class="num">{{money .Total}}</td><td class="num">{{money .Paid}}</td><td class="num">{{money .Outstanding}}</td><td>{{.Status}}</td></tr>{{end}}
+<table class="stmt"><tr><th>Date</th><th>Ref</th><th>Supplier</th><th class="num">Total</th><th class="num">Paid</th><th class="num">Credited</th><th class="num">Outstanding</th><th>Status</th></tr>
+{{range .Bills}}<tr><td class="date">{{.Date}}</td><td class="ref">{{.Ref}}</td><td>{{.Supplier}}</td><td class="num">{{money .Total}}</td><td class="num">{{money .Paid}}</td><td class="num">{{money .Credited}}</td><td class="num">{{money .Outstanding}}</td><td>{{.Status}}</td></tr>{{end}}
 </table></div>{{end}}{{end}}
 
 
@@ -518,6 +520,7 @@
 {{define "page:expenses.credit"}}<h1>Expenses · Credit notes</h1>
 <div class="row">
  <div class="card"><h3>Record a supplier credit note</h3><form method="post" action="/expenses/credit-notes/record">
+  <label>Bill (required unless refunded to the bank)<select name="bill"><option value="">Choose a bill</option>{{range .OpenBills}}<option value="{{.Ref}}">{{.Ref}} — {{.Supplier}} ({{money .Outstanding}} outstanding)</option>{{end}}</select></label>
   <label>Supplier<input name="supplier" placeholder="Acme Supplies"></label>
   <label>Category<select name="account">{{range .ExpenseAccounts}}<option value="{{.Code}}">{{.Name}}</option>{{end}}</select></label>
   <label>Net amount<input name="amount" placeholder="0.00"></label>
@@ -534,9 +537,10 @@
 {{define "page:expenses.mileage"}}<h1>Expenses · Mileage</h1>
 <div class="row">
  <div class="card"><h3>Claim business mileage</h3><form method="post" action="/expenses/mileage/record">
+  <label>Claimant<input name="person" placeholder="Leave blank for the signing director"></label>
   <label>Business miles (car)<input name="miles" placeholder="0"></label>
   {{template "datefield" .}}<button>Add claim</button></form>
-  <p class="muted">Paid at HMRC AMAP rates (55p for the first 10,000 miles, then 25p) into your director's loan.</p></div>
+  <p class="muted">Uses the journey date and this claimant’s earlier miles in the tax year. Cars: 55p for the first 10,000 miles from 6 April 2026 (45p before), then 25p. The company owes the claim through the director’s loan.</p></div>
  <div class="card snap"><h3>At a glance</h3>
   <div class="kv"><span>Director's loan</span><b>{{money .DirLoan}}</b></div></div>
 </div>{{template "activity" .}}{{end}}
@@ -662,10 +666,10 @@
 {{define "page:pay-yourself"}}<h1>Pay Yourself · Salary</h1>
 <div class="row">
  <div class="card"><h3>Run a salary</h3><form method="post" action="/pay-yourself/salary/run">
-  <label>Annual gross salary<input name="amount" placeholder="12570.00"></label>
+  <label>Gross pay for this run<input name="amount" placeholder="12570.00"></label>
   <label class="chk"><input type="checkbox" name="pension" value="1"> Enrol in workplace pension (auto-enrolment)</label>
   {{template "datefield" .}}<button>Run payroll</button></form>
-  <p class="muted">Computes PAYE and employee/employer NI at the rates of the tax year the run date falls in — today that is {{.TaxYear.Rates.Name}}. Pension adds 5% employee + 3% employer on qualifying earnings ({{money .TaxYear.Pension.LowerLimit}}–{{money .TaxYear.Pension.UpperLimit}}).</p></div>
+  <p class="muted">Uses total pay in the tax year and deducts amounts already charged, using the director’s annual earnings model. Rates come from the tax year the run date falls in — today that is {{.TaxYear.Rates.Name}}. Pension adds 5% employee + 3% employer on qualifying earnings ({{money .TaxYear.Pension.LowerLimit}}–{{money .TaxYear.Pension.UpperLimit}}).</p></div>
  {{template "payslip" .}}
 </div>{{template "activity" .}}{{end}}
 
@@ -732,7 +736,7 @@
 
 
 {{define "page:company-tax.vat"}}<h1>Company Tax · VAT return <span class="muted">({{.FY}})</span></h1>
-{{if .VATReturn}}{{with .VATReturn}}<div class="card"><h3>VAT return — {{.From}} to {{.To}}</h3>
+{{if .VATError}}<p class="muted">Cannot produce the VAT return: {{.VATError}}</p>{{else if .VATReturn}}{{with .VATReturn}}<div class="card"><h3>VAT return — {{.From}} to {{.To}}</h3>
 <table class="stmt">
  <tr><td>Box 1 — VAT due on sales and other outputs</td><td class="num">{{money .Box1}}</td></tr>
  <tr><td>Box 2 — VAT due on acquisitions from EU member states</td><td class="num">{{money .Box2}}</td></tr>
@@ -744,7 +748,7 @@
  <tr><td>Box 8 — goods supplied to EU member states</td><td class="num">{{money .Box8}}</td></tr>
  <tr><td>Box 9 — goods acquired from EU member states</td><td class="num">{{money .Box9}}</td></tr>
 </table>
-<p class="muted">Boxes 1, 3, 4 and 5 come straight from your VAT control account, so the net position is exact. Box 7 excludes wages, pension, depreciation and corporation tax (not purchases). {{if .Box5Reclaim}}You are in a repayment position.{{end}} Generated for the current financial year — this return is <b>not submitted to HMRC</b>.</p>
+<p class="muted">VAT is classified from sales and purchase journals; credit notes reduce the relevant box. Payments to HMRC are excluded. Box 7 excludes wages, pension, depreciation and corporation tax (not purchases). {{if .Box5Reclaim}}You are in a repayment position.{{end}} Generated for the VAT quarter containing today — this return is <b>not submitted to HMRC</b>.</p>
 <p><a class="btn" href="/company-tax/vat/document" target="_blank">View return</a> <a class="btn ghost" href="/company-tax/vat/document?download=1">Download return</a></p></div>{{end}}
 {{else}}<p class="muted">This company is not VAT registered, so there is no VAT return. Turn on <b>VAT registered</b> under <a href="/company">Company · Details</a> to charge VAT and produce a return.</p>{{end}}{{template "activity" .}}{{end}}
 
@@ -813,7 +817,7 @@
   <label>Rate % (reducing balance)<input name="rate" placeholder="25"></label>
   {{template "datefield" .}}<button>Buy asset</button></form></div>
  <div class="card"><h3>Depreciation</h3>
-  <form method="post" action="/accounting/fixed-assets/depreciate"><button>Run one year's depreciation</button></form>
+  <form method="post" action="/accounting/fixed-assets/depreciate"><button>Post depreciation for this financial year</button></form>
   <p class="muted">Computes each asset's charge for the year from its cost, method and life — no figures typed in.</p></div>
 </div>
 {{if .Assets}}<div class="card"><h3>Asset register</h3>
@@ -937,7 +941,7 @@
   <div><span>Net</span><b>{{money .Doc.Net}}</b></div>
   <div><span>VAT</span><b>{{money .Doc.VAT}}</b></div>
   <div class="g"><span>Total due</span><b>{{money .Doc.Gross}}</b></div>
-  {{with .Invoice}}<div><span>Received</span><b>{{money .Paid}}</b></div>
+  {{with .Invoice}}<div><span>Received</span><b>{{money .Paid}}</b></div><div><span>Credited</span><b>{{money .Credited}}</b></div>
   <div class="out"><span>Outstanding</span><b>{{money .Outstanding}}</b></div>{{end}}
  </div>
  <p class="foot">Payment due to {{.Co.Name}}. This is a computer-generated invoice produced by a virtual accounting game — not a demand for payment from a real business.</p>
@@ -1154,7 +1158,7 @@
  <tr><td>8</td><td>Total value of dispatches of goods and related costs (excluding VAT) from Northern Ireland to EU member states</td><td class="num">{{money .Box8}}</td></tr>
  <tr><td>9</td><td>Total value of acquisitions of goods and related costs (excluding VAT) made in Northern Ireland from EU member states</td><td class="num">{{money .Box9}}</td></tr>
  </table>{{end}}
- <p style="font-size:13px">Boxes 1, 3, 4 and 5 come from the VAT control account. Box 7 excludes wages, pension, depreciation and corporation tax.</p>
+ <p style="font-size:13px">VAT comes from sales and purchase journals, including credit notes and excluding payments to HMRC. Box 7 excludes wages, pension, depreciation and corporation tax.</p>
  <p class="foot">Generated by a virtual accounting game. It is not submitted to HMRC; a real return goes through Making Tax Digital software.</p>
 </div>
 <div class="actions"><a href="/company-tax/vat">← Back to VAT return</a><button onclick="window.print()">Print / Save PDF</button></div>

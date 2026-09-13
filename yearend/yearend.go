@@ -9,11 +9,14 @@
 package yearend
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/richardjennings/accounts/ledger"
 	"github.com/richardjennings/accounts/money"
 )
+
+var ErrNothingToClose = errors.New("yearend: nothing to close")
 
 // signedDebit returns an account's balance as at a date as a debit-positive amount
 // (a debit balance is positive, a credit balance negative), regardless of the
@@ -66,14 +69,14 @@ func CloseEntry(book *ledger.Book, asAt ledger.Date, ref, retainedCode string, a
 		}
 	}
 	if len(postings) == 0 {
-		return ledger.Journal{}, fmt.Errorf("yearend: nothing to close for %s", asAt)
+		return ledger.Journal{}, fmt.Errorf("%w for %s", ErrNothingToClose, asAt)
 	}
 
 	// The retained-earnings posting balances the journal: it absorbs the net that was
 	// cleared out of the P&L and dividends accounts.
 	if netDebit.IsPositive() {
 		postings = append(postings, ledger.Posting{Account: retainedCode, Side: ledger.Debit, Amount: netDebit})
-	} else {
+	} else if netDebit.IsNegative() {
 		postings = append(postings, ledger.Posting{Account: retainedCode, Side: ledger.Credit, Amount: netDebit.Neg()})
 	}
 
@@ -81,5 +84,5 @@ func CloseEntry(book *ledger.Book, asAt ledger.Date, ref, retainedCode string, a
 	if err != nil {
 		return ledger.Journal{}, err
 	}
-	return j.WithRef(ref), nil
+	return j.WithRef(ref).AsClosing(), nil
 }

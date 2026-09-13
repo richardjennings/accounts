@@ -67,24 +67,27 @@ func (s Salary) Journal() (ledger.Journal, error) {
 	if err != nil {
 		return ledger.Journal{}, err
 	}
-	postings := []ledger.Posting{
-		{Account: acct(s.Expense, chart.Salaries), Side: ledger.Debit, Amount: s.Gross},
+	var postings []ledger.Posting
+	add := func(account string, side ledger.Side, amount money.Money) {
+		if amount.IsZero() {
+			return
+		}
+		if amount.IsNegative() {
+			amount = amount.Neg()
+			if side == ledger.Debit {
+				side = ledger.Credit
+			} else {
+				side = ledger.Debit
+			}
+		}
+		postings = append(postings, ledger.Posting{Account: account, Side: side, Amount: amount})
 	}
-	if erNIC.IsPositive() {
-		postings = append(postings, ledger.Posting{Account: acct(s.EmployerNICExpense, chart.EmployerNIC), Side: ledger.Debit, Amount: erNIC})
-	}
-	if erPen.IsPositive() {
-		postings = append(postings, ledger.Posting{Account: acct(s.PensionExpense, chart.PensionCosts), Side: ledger.Debit, Amount: erPen})
-	}
-	if payeOwed.IsPositive() {
-		postings = append(postings, ledger.Posting{Account: acct(s.PAYENIC, chart.PAYENIC), Side: ledger.Credit, Amount: payeOwed})
-	}
-	if pensionOwed.IsPositive() {
-		postings = append(postings, ledger.Posting{Account: acct(s.PensionPayable, chart.PensionPayable), Side: ledger.Credit, Amount: pensionOwed})
-	}
-	if net.IsPositive() {
-		postings = append(postings, ledger.Posting{Account: acct(s.Bank, chart.Bank), Side: ledger.Credit, Amount: net})
-	}
+	add(acct(s.Expense, chart.Salaries), ledger.Debit, s.Gross)
+	add(acct(s.EmployerNICExpense, chart.EmployerNIC), ledger.Debit, erNIC)
+	add(acct(s.PensionExpense, chart.PensionCosts), ledger.Debit, erPen)
+	add(acct(s.PAYENIC, chart.PAYENIC), ledger.Credit, payeOwed)
+	add(acct(s.PensionPayable, chart.PensionPayable), ledger.Credit, pensionOwed)
+	add(acct(s.Bank, chart.Bank), ledger.Credit, net)
 	j, err := ledger.NewJournal(s.Date, "Salary "+s.Ref, postings...)
 	if err != nil {
 		return ledger.Journal{}, err

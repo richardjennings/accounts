@@ -51,7 +51,7 @@ func TestPayrollUsesTheTaxYearOfTheRunDate(t *testing.T) {
 	// The 2026/27 P60 sums the two runs in that year: pay £60,000, and the NI bands
 	// come from that year's limits (LEL £6,708, PT £12,570, UEL £50,270).
 	p60 := page(t, h, "/pay-yourself/p60?name=Jo+Coder&year=2026")
-	for _, s := range []string{"P60 End of Year Certificate", "Tax year to 5 April 2027", "2 payroll run(s)", "£60,000.00", "£6,972.00", "£6,708.00", "£5,862.00", "£37,700.00", "£2,788.80", "£110.70"} {
+	for _, s := range []string{"P60 End of Year Certificate", "Tax year to 5 April 2027", "2 payroll run(s)", "£60,000.00", "£11,432.00", "£6,708.00", "£5,862.00", "£37,700.00", "£3,210.60", "£2,755.35"} {
 		if !strings.Contains(p60, s) {
 			t.Errorf("P60 lacks %q", s)
 		}

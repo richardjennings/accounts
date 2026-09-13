@@ -9,6 +9,7 @@ package main
 import (
 	"bytes"
 	"embed"
+	"errors"
 	"flag"
 	"fmt"
 	"html/template"
@@ -31,7 +32,6 @@ import (
 	"github.com/richardjennings/accounts/frs105"
 	"github.com/richardjennings/accounts/importer"
 	"github.com/richardjennings/accounts/ledger"
-	"github.com/richardjennings/accounts/mileage"
 	"github.com/richardjennings/accounts/money"
 	"github.com/richardjennings/accounts/purchaseledger"
 	"github.com/richardjennings/accounts/register"
@@ -136,8 +136,10 @@ type entry struct {
 
 // assetHolding is one fixed asset in the register with the depreciation posted so far.
 type assetHolding struct {
-	Asset       fixedassets.Asset
-	Accumulated money.Money
+	Asset              fixedassets.Asset
+	Accumulated        money.Money
+	DepreciatedThrough ledger.Date
+	DepreciationYears  int
 }
 
 // employee is one person on the payroll.
@@ -243,7 +245,8 @@ type app struct {
 	entries        []entry
 	seq            int
 	flash          string
-	runs           []payrollRun       // every salary assessed, for payslips and P60s
+	runs           []payrollRun // every salary assessed, for payslips and P60s
+	mileageRuns    []mileageRun
 	dividends      []dividendRun      // every dividend declared, for vouchers and minutes
 	approvals      []accountsApproval // one per financial year whose accounts the board approved
 	closedThrough  ledger.Date        // periods on/before this date are closed (locked)
@@ -371,16 +374,20 @@ func newApp(dataPath string) (*app, error) {
 	case dataPath == "":
 		a.seedShareCapital() // in-memory only
 	default:
-		if s, err := loadSnapshot(dataPath); err == nil {
-			if rerr := a.restore(s); rerr != nil {
-				log.Printf("could not restore %s (%v); starting a fresh company", dataPath, rerr)
-				a.seedShareCapital()
-			} else {
-				log.Printf("restored company from %s", dataPath)
+		s, err := loadSnapshot(dataPath)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			a.seedShareCapital()
+			if err := a.save(); err != nil {
+				return nil, err
 			}
-		} else {
-			a.seedShareCapital() // no save yet; this becomes the first
-			a.save()
+		case err != nil:
+			return nil, fmt.Errorf("load %s: %w (save preserved)", dataPath, err)
+		default:
+			if err := a.restore(s); err != nil {
+				return nil, fmt.Errorf("restore %s: %w (save preserved)", dataPath, err)
+			}
+			log.Printf("restored company from %s", dataPath)
 		}
 	}
 	return a, nil
@@ -411,6 +418,7 @@ func (a *app) clearBooks() {
 	a.assets, a.employees = nil, nil
 	a.banks, a.mainBank = defaultBanks(), chart.Bank
 	a.entries, a.seq, a.runs, a.dividends = nil, 0, nil, nil
+	a.mileageRuns = nil
 	a.approvals = nil
 	a.closedThrough = ledger.Date{}
 	a.fxBalances, a.pendingStmt, a.lastImport = nil, nil, nil
@@ -587,16 +595,21 @@ func accountsLines(acc frs105.Accounts) (bs, pl []accountsLine) {
 	return bs, pl
 }
 
-// vatReturn computes the VAT return for the current financial year. Wages, pension,
-// depreciation and the corporation-tax charge are not Box 7 purchases.
-func (a *app) vatReturn() vatreturn.Return {
-	fy := a.fy()
-	r, _ := vatreturn.Compute(a.book, fy.Start, fy.End, vatreturn.Options{
+// vatReturn uses the VAT quarter containing the game's date. A company without
+// a configured stagger defaults to calendar quarters.
+func (a *app) vatReturn() (vatreturn.Return, error) {
+	co := a.co
+	if co.VATQuarterEndMonth == 0 {
+		co.VATQuarterEndMonth = time.March
+	}
+	to := co.VATQuarterEnd(a.today)
+	start := time.Date(to.Year, to.Month-2, 1, 0, 0, 0, 0, time.UTC)
+	from := ledger.NewDate(start.Year(), start.Month(), start.Day())
+	return vatreturn.Compute(a.book, from, to, vatreturn.Options{
 		VATControl:      chart.VAT,
 		PurchaseExclude: map[string]bool{chart.Salaries: true, chart.EmployerNIC: true, chart.PensionCosts: true, chart.Depreciation: true, chart.CorpTaxCharge: true},
 		CapitalCodes:    []string{chart.PlantEquipment},
 	})
-	return r
 }
 
 // importInvoices applies parsed CSV invoice rows (Crunch-style) as credit sales,
@@ -873,7 +886,7 @@ func (a *app) whole(r *http.Request, field string) (int, error) {
 // years on the books carries their tax charge and depreciation in the balance.
 func (a *app) fyMovement(code string) money.Money {
 	fy := a.fy()
-	v, _ := a.book.MovementBetween(code, fy.Start, fy.End)
+	v, _ := a.book.ActivityBetween(code, fy.Start, fy.End)
 	return v
 }
 
@@ -1015,7 +1028,7 @@ func (a *app) reconciliations() []reconView {
 
 func (a *app) toView(j ledger.Journal) journalView {
 	ex := explain.ExplainJournal(a.book, j) // plain-language narration for learners
-	jv := journalView{Date: j.Date().String(), Ref: j.Ref(), Narrative: j.Narrative(), Principle: ex.Principle, Reversible: !touchesSubsidiary(j)}
+	jv := journalView{Date: j.Date().String(), Ref: j.Ref(), Narrative: j.Narrative(), Principle: ex.Principle, Reversible: a.reversalReason(j) == ""}
 	for i, p := range j.Postings() {
 		name := p.Account
 		if acc, ok := a.book.Account(p.Account); ok {
@@ -1120,6 +1133,7 @@ type pageData struct {
 	BSLines, PLLines          []accountsLine
 	Directors                 []register.Officer
 	VATReturn                 *vatreturn.Return
+	VATError                  string
 }
 
 func (a *app) render(w http.ResponseWriter, page string) {
@@ -1230,8 +1244,12 @@ func (a *app) render(w http.ResponseWriter, page string) {
 		d.StmtUpload = a.stmtUploadView()
 	}
 	if page == "company-tax.vat" && a.co.VATRegistered {
-		vr := a.vatReturn()
-		d.VATReturn = &vr
+		vr, err := a.vatReturn()
+		if err != nil {
+			d.VATError = err.Error()
+		} else {
+			d.VATReturn = &vr
+		}
 	}
 	a.flash = ""
 
@@ -1271,23 +1289,10 @@ func (a *app) run(section, redirect string, build func(r *http.Request) (themes.
 		case op == nil:
 			a.flash = okMsg
 		default:
-			j, jerr := op.Journal()
-			switch {
-			case jerr == nil && a.inClosedPeriod(j.Date()):
-				a.flash = "⚠ " + j.Date().String() + " is in a closed period — reopen or use a later date"
-			default:
-				if perr := themes.Post(a.book, op); perr != nil {
-					a.flash = "⚠ " + perr.Error()
-				} else {
-					if jerr == nil {
-						principle := ""
-						if ex, e := explain.Explain(a.book, op); e == nil {
-							principle = ex.Principle
-						}
-						a.entries = append(a.entries, entry{section, j, principle})
-					}
-					a.flash = "✓ " + okMsg
-				}
+			if err := a.postOperation(section, op); err != nil {
+				a.flash = "⚠ " + err.Error()
+			} else {
+				a.flash = "✓ " + okMsg
 			}
 		}
 		http.Redirect(w, r, redirect, http.StatusSeeOther)
@@ -1403,13 +1408,17 @@ func (a *app) routes() *http.ServeMux {
 		if !a.closedThrough.IsZero() && !a.closedThrough.Before(fy.End) {
 			a.flash = "⚠ FY" + strconv.Itoa(fy.Number) + " is already closed"
 		} else {
-			// Post the closing journal (best effort — an empty year has nothing to close),
-			// then lock the period and carry the clock into the next year.
-			if j, err := yearend.CloseEntry(a.book, fy.End, a.ref("YE"), chart.RetainedEarnings, chart.Dividends); err == nil {
-				if perr := a.book.Post(j); perr == nil {
-					a.entries = append(a.entries, entry{section: "company", j: j})
-				}
+			j, err := yearend.CloseEntry(a.book, fy.End, a.ref("YE"), chart.RetainedEarnings, chart.Dividends)
+			if err == nil {
+				err = a.postOperation("company", journalOp{j: j})
 			}
+			if err != nil && !errors.Is(err, yearend.ErrNothingToClose) {
+				a.flash = "⚠ Could not close the year: " + err.Error()
+				a.mu.Unlock()
+				http.Redirect(w, r, "/company/financial-year", http.StatusSeeOther)
+				return
+			}
+			a.book.CloseThrough(fy.End)
 			a.closedThrough = fy.End
 			a.today = a.co.NextYearStart(a.today)
 			a.flash = fmt.Sprintf("✓ Closed FY%d (to %s); profit carried to retained earnings. Now in FY%d.", fy.Number, fy.End, a.fy().Number)
@@ -1573,11 +1582,9 @@ func (a *app) routes() *http.ServeMux {
 			default:
 				amount := a.reg.Nominal.MulInt(int64(shares))
 				op := capital.IssueShares{Date: a.date(r), Ref: a.ref("SC"), Amount: amount, Bank: a.bankCode(r)}
-				if j, jerr := op.Journal(); jerr != nil || a.book.Post(j) != nil {
-					a.flash = "⚠ could not issue shares"
+				if err := a.postOperation("company", afterPost(op, func() { a.addShares(to, shares, a.date(r)) })); err != nil {
+					a.flash = "⚠ could not issue shares: " + err.Error()
 				} else {
-					a.entries = append(a.entries, entry{section: "company", j: j})
-					a.addShares(to, shares, a.date(r))
 					a.flash = fmt.Sprintf("✓ Issued %d ordinary shares to %s for %s", shares, to, fmtMoney(amount))
 				}
 			}
@@ -1624,15 +1631,20 @@ func (a *app) routes() *http.ServeMux {
 		if err != nil {
 			return nil, "", err
 		}
-		if _, err := a.sl.Raise(ref, customer, when, gross); err != nil { // customer owes the gross
-			return nil, "", err
+		if !gross.IsPositive() {
+			return nil, "", fmt.Errorf("invoice total must be positive")
 		}
-		for _, c := range recs { // reconcile the recovered costs to this invoice
-			c.Recharged, c.RechargedOn = true, ref
+		if _, exists := a.sl.Get(ref); exists {
+			return nil, "", fmt.Errorf("invoice %s already exists", ref)
 		}
-		a.invoiceDocs[ref] = &invoiceDoc{Ref: ref, Customer: customer, Date: when, Lines: lines, Net: net, VAT: vatAmt, Gross: gross}
-		a.invoiceOrder = append(a.invoiceOrder, ref)
-		return inv, fmt.Sprintf("Invoice %s raised — %s to %s", ref, fmtMoney(gross), customer), nil
+		return afterPost(inv, func() {
+			_, _ = a.sl.Raise(ref, customer, when, gross)
+			for _, c := range recs {
+				c.Recharged, c.RechargedOn = true, ref
+			}
+			a.invoiceDocs[ref] = &invoiceDoc{Ref: ref, Customer: customer, Date: when, Lines: lines, Net: net, VAT: vatAmt, Gross: gross}
+			a.invoiceOrder = append(a.invoiceOrder, ref)
+		}), fmt.Sprintf("Invoice %s raised — %s to %s", ref, fmtMoney(gross), customer), nil
 	}))
 	mux.HandleFunc("/sales/invoices/view", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
@@ -1665,10 +1677,10 @@ func (a *app) routes() *http.ServeMux {
 		if err != nil {
 			return nil, "", err
 		}
-		if err := a.sl.Allocate(ref, m); err != nil {
+		if err := a.sl.ValidateAllocation(ref, m); err != nil {
 			return nil, "", err
 		}
-		return sales.Receipt{Date: a.date(r), Ref: a.ref("REC"), Amount: m, Bank: a.bankCode(r)},
+		return afterPost(sales.Receipt{Date: a.date(r), Ref: a.ref("REC"), Amount: m, Bank: a.bankCode(r)}, func() { _ = a.sl.Allocate(ref, m) }),
 			fmt.Sprintf("Receipt of %s against %s (%s)", fmtMoney(m), ref, inv.Customer), nil
 	}))
 	mux.HandleFunc("/sales/cash/record", a.run("sales", "/sales/cash", func(r *http.Request) (themes.Operation, string, error) {
@@ -1683,7 +1695,24 @@ func (a *app) routes() *http.ServeMux {
 		if err != nil {
 			return nil, "", err
 		}
-		return sales.CreditNote{Date: a.date(r), Ref: a.ref("CN"), Amount: m}, "Credit note issued", nil
+		ref := strings.TrimSpace(r.FormValue("invoice"))
+		inv, ok := a.sl.Get(ref)
+		if !ok {
+			return nil, "", fmt.Errorf("choose the invoice to credit")
+		}
+		if a.date(r).Before(inv.Date) {
+			return nil, "", fmt.Errorf("credit date precedes the invoice")
+		}
+		vatAmt := a.vatOn(r, m)
+		gross, err := m.Add(vatAmt)
+		if err != nil {
+			return nil, "", err
+		}
+		if err := a.sl.ValidateAllocation(ref, gross); err != nil {
+			return nil, "", err
+		}
+		op := sales.CreditNote{Date: a.date(r), Ref: a.ref("CN"), Amount: m, VAT: vatAmt}
+		return afterPost(op, func() { _ = a.sl.Credit(ref, gross) }), "Credit note issued against " + ref, nil
 	}))
 
 	// Expenses.
@@ -1702,11 +1731,13 @@ func (a *app) routes() *http.ServeMux {
 			return nil, "", err
 		}
 		ref := a.ref("BILL")
-		if _, err := a.purch.Record(ref, supplier, a.date(r), gross); err != nil { // you owe the gross
-			return nil, "", err
+		if _, exists := a.purch.Get(ref); exists {
+			return nil, "", fmt.Errorf("bill %s already exists", ref)
 		}
-		a.costs = append(a.costs, &costRecord{Ref: ref, Desc: supplier, Date: a.date(r), Net: m})
-		return expenses.Bill{Date: a.date(r), Ref: ref, Supplier: supplier, Amount: m, VAT: vatAmt, Expense: r.FormValue("account")}, "Bill recorded", nil
+		return afterPost(expenses.Bill{Date: a.date(r), Ref: ref, Supplier: supplier, Amount: m, VAT: vatAmt, Expense: r.FormValue("account")}, func() {
+			_, _ = a.purch.Record(ref, supplier, a.date(r), gross)
+			a.costs = append(a.costs, &costRecord{Ref: ref, Desc: supplier, Date: a.date(r), Net: m})
+		}), "Bill recorded", nil
 	}))
 	mux.HandleFunc("/expenses/payments/record", a.run("expenses", "/expenses/payments", func(r *http.Request) (themes.Operation, string, error) {
 		ref := strings.TrimSpace(r.FormValue("bill"))
@@ -1718,10 +1749,10 @@ func (a *app) routes() *http.ServeMux {
 		if err != nil {
 			return nil, "", err
 		}
-		if err := a.purch.Allocate(ref, m); err != nil {
+		if err := a.purch.ValidateAllocation(ref, m); err != nil {
 			return nil, "", err
 		}
-		return expenses.Payment{Date: a.date(r), Ref: a.ref("SPAY"), Amount: m, Bank: a.bankCode(r)},
+		return afterPost(expenses.Payment{Date: a.date(r), Ref: a.ref("SPAY"), Amount: m, Bank: a.bankCode(r)}, func() { _ = a.purch.Allocate(ref, m) }),
 			fmt.Sprintf("Paid %s to %s (%s)", fmtMoney(m), bill.Supplier, ref), nil
 	}))
 	mux.HandleFunc("/expenses/direct/record", a.run("expenses", "/expenses/direct", func(r *http.Request) (themes.Operation, string, error) {
@@ -1734,8 +1765,9 @@ func (a *app) routes() *http.ServeMux {
 			desc = "Expense"
 		}
 		ref := a.ref("EXP")
-		a.costs = append(a.costs, &costRecord{Ref: ref, Desc: desc, Date: a.date(r), Net: m})
-		return expenses.DirectExpense{Date: a.date(r), Ref: ref, Payee: desc, Amount: m, VAT: a.vatOn(r, m), Expense: r.FormValue("account"), Bank: a.bankCode(r)}, "Expense recorded", nil
+		return afterPost(expenses.DirectExpense{Date: a.date(r), Ref: ref, Payee: desc, Amount: m, VAT: a.vatOn(r, m), Expense: r.FormValue("account"), Bank: a.bankCode(r)}, func() {
+			a.costs = append(a.costs, &costRecord{Ref: ref, Desc: desc, Date: a.date(r), Net: m})
+		}), "Expense recorded", nil
 	}))
 	mux.HandleFunc("/expenses/credit-notes/record", a.run("expenses", "/expenses/credit-notes", func(r *http.Request) (themes.Operation, string, error) {
 		m, err := a.amount(r)
@@ -1746,17 +1778,36 @@ func (a *app) routes() *http.ServeMux {
 		if r.FormValue("refund") != "" {
 			against = a.bankCode(r) // a cash refund rather than a reduction of what's owed
 		}
-		return expenses.CreditNote{Date: a.date(r), Ref: a.ref("PCN"), Supplier: strings.TrimSpace(r.FormValue("supplier")), Amount: m, VAT: a.vatOn(r, m), Expense: r.FormValue("account"), Against: against}, "Supplier credit note recorded", nil
-	}))
-	mux.HandleFunc("/expenses/mileage/record", a.run("expenses", "/expenses/mileage", func(r *http.Request) (themes.Operation, string, error) {
-		miles, err := a.whole(r, "miles")
+		vatAmt := a.vatOn(r, m)
+		op := expenses.CreditNote{Date: a.date(r), Ref: a.ref("PCN"), Supplier: strings.TrimSpace(r.FormValue("supplier")), Amount: m, VAT: vatAmt, Expense: r.FormValue("account"), Against: against}
+		if against != chart.TradeCreditors {
+			return op, "Supplier cash refund recorded", nil
+		}
+		ref := strings.TrimSpace(r.FormValue("bill"))
+		bill, ok := a.purch.Get(ref)
+		if !ok {
+			return nil, "", fmt.Errorf("choose the bill to credit")
+		}
+		if a.date(r).Before(bill.Date) {
+			return nil, "", fmt.Errorf("credit date precedes the bill")
+		}
+		gross, err := m.Add(vatAmt)
 		if err != nil {
 			return nil, "", err
 		}
-		claim := mileage.Claim(miles, 0, mileage.Car, mileage.RateTable{})
-		return mileage.Reimbursement{Date: a.date(r), Ref: a.ref("MIL"), Amount: claim},
-			fmt.Sprintf("Mileage claim for %d miles: %s", miles, fmtMoney(claim)), nil
+		if err := a.purch.ValidateAllocation(ref, gross); err != nil {
+			return nil, "", err
+		}
+		return afterPost(op, func() {
+			_ = a.purch.Credit(ref, gross)
+			for _, c := range a.costs {
+				if c.Ref == ref {
+					c.Net, _ = c.Net.Sub(m)
+				}
+			}
+		}), "Supplier credit note recorded against " + ref, nil
 	}))
+	mux.HandleFunc("/expenses/mileage/record", a.run("expenses", "/expenses/mileage", a.mileageOperation))
 
 	// Banking.
 	mux.HandleFunc("/banking/transfers/record", a.run("banking", "/banking/transfers", func(r *http.Request) (themes.Operation, string, error) {
@@ -1849,16 +1900,8 @@ func (a *app) routes() *http.ServeMux {
 		if a.inClosedPeriod(when) {
 			return nil, "", fmt.Errorf("%s is in a closed period — reopen or use a later date", when)
 		}
-		ty := taxYearOn(when)
-		res, err := payroll.Compute(payroll.Input{GrossAnnual: gross, Rates: ty.Rates, Pension: ty.Pension, AutoEnrol: r.FormValue("pension") != ""})
-		if err != nil {
-			return nil, "", err
-		}
-		ref := a.ref("SAL")
-		a.runs = append(a.runs, payrollRun{Employee: a.signer(), TaxCode: "1257L", Date: when, Ref: ref, Result: res})
-		taxNIC, _ := res.IncomeTax.Add(res.EmployeeNIC)
-		erNIC, _ := res.EmployerNIC.Add(res.Class1A) // secondary Class 1 + Class 1A on benefits
-		return payyourself.Salary{Date: when, Ref: ref, Gross: gross, TaxNIC: taxNIC, EmployerNIC: erNIC, EmployeePension: res.EmployeePension, EmployerPension: res.EmployerPension, Bank: a.main()}, "Salary run at " + ty.Rates.Name + " rates", nil
+		op, err := a.payrollOperation(a.signer(), when, gross, "1257L", "", money.Zero(a.co.Currency), r.FormValue("pension") != "")
+		return op, "Salary run at " + taxYearOn(when).Rates.Name + " rates", err
 	}))
 	mux.HandleFunc("/pay-yourself/payslip", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
@@ -1907,7 +1950,7 @@ func (a *app) routes() *http.ServeMux {
 		if a.inClosedPeriod(when) {
 			return nil, "", fmt.Errorf("%s is in a closed period — reopen or use a later date", when)
 		}
-		dec, err := dividends.Check(a.book, a.fy().End, m)
+		dec, err := dividends.Check(a.book, when, m)
 		if err != nil {
 			return nil, "", err
 		}
@@ -1919,8 +1962,9 @@ func (a *app) routes() *http.ServeMux {
 			return nil, "", err
 		}
 		ref := a.ref("DIV")
-		a.dividends = append(a.dividends, dividendRun{Ref: ref, Date: when, Total: m, PerShare: a.reg.PerShareLabel(m), Available: dec.Available, Awards: awards})
-		return payyourself.DeclareDividend{Date: when, Ref: ref, Amount: m}, "Dividend declared and allocated to shareholders", nil
+		return afterPost(payyourself.DeclareDividend{Date: when, Ref: ref, Amount: m}, func() {
+			a.dividends = append(a.dividends, dividendRun{Ref: ref, Date: when, Total: m, PerShare: a.reg.PerShareLabel(m), Available: dec.Available, Awards: awards})
+		}), "Dividend declared and allocated to shareholders", nil
 	}))
 	mux.HandleFunc("/pay-yourself/dividends/voucher", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
@@ -2043,29 +2087,15 @@ func (a *app) routes() *http.ServeMux {
 			http.Redirect(w, r, "/pay-yourself/employees", http.StatusSeeOther)
 			return
 		}
-		ty := taxYearOn(a.today)
-		res, err := payroll.Compute(payroll.Input{GrossAnnual: e.Salary, Rates: ty.Rates, Pension: ty.Pension, TaxCode: e.TaxCode, StudentLoan: ty.Plan(e.StudentLoan), BenefitsInKind: e.BIK, AutoEnrol: e.AutoEnrol})
+		op, err := a.payrollOperation(e.Name, a.today, e.Salary, e.TaxCode, e.StudentLoan, e.BIK, e.AutoEnrol)
+		if err == nil {
+			err = a.postOperation("pay-yourself", op)
+		}
 		if err != nil {
 			a.flash = "⚠ " + err.Error()
-			http.Redirect(w, r, "/pay-yourself/employees", http.StatusSeeOther)
-			return
+		} else {
+			a.flash = "✓ Ran payroll for " + e.Name + " at " + taxYearOn(a.today).Rates.Name + " rates"
 		}
-		taxNIC, _ := res.IncomeTax.Add(res.EmployeeNIC)
-		taxNIC, _ = taxNIC.Add(res.StudentLoan)      // income tax + employee NI + student loan, all withheld
-		erNIC, _ := res.EmployerNIC.Add(res.Class1A) // secondary Class 1 + Class 1A on benefits
-		ref := a.ref("SAL")
-		j, jerr := payyourself.Salary{Date: a.today, Ref: ref, Gross: e.Salary, TaxNIC: taxNIC, EmployerNIC: erNIC, EmployeePension: res.EmployeePension, EmployerPension: res.EmployerPension, Bank: a.main()}.Journal()
-		if jerr == nil {
-			jerr = a.book.Post(j)
-		}
-		if jerr != nil {
-			a.flash = "⚠ " + jerr.Error()
-			http.Redirect(w, r, "/pay-yourself/employees", http.StatusSeeOther)
-			return
-		}
-		a.entries = append(a.entries, entry{section: "pay-yourself", j: j})
-		a.runs = append(a.runs, payrollRun{Employee: e.Name, TaxCode: e.TaxCode, Date: a.today, Ref: ref, Result: res})
-		a.flash = "✓ Ran payroll for " + e.Name + " at " + ty.Rates.Name + " rates"
 		http.Redirect(w, r, "/pay-yourself/employees", http.StatusSeeOther)
 	})
 
@@ -2088,7 +2118,11 @@ func (a *app) routes() *http.ServeMux {
 			http.NotFound(w, r)
 			return
 		}
-		vr := a.vatReturn()
+		vr, err := a.vatReturn()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
 		if r.URL.Query().Get("download") == "1" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"vat-return-%s.html\"", vr.To))
@@ -2132,11 +2166,16 @@ func (a *app) routes() *http.ServeMux {
 			}
 		}
 		ref := a.ref("FA")
-		a.assets = append(a.assets, &assetHolding{
+		holding := &assetHolding{
 			Asset:       fixedassets.Asset{Ref: ref, Name: name, Cost: cost, Acquired: a.date(r), Method: method, UsefulLifeYears: life, Rate: rate},
 			Accumulated: money.Zero(a.co.Currency),
-		})
-		return fixedassets.Acquisition{Date: a.date(r), Ref: ref, Amount: cost}, "Asset purchased: " + name, nil
+		}
+		if _, err := holding.Asset.Charge(holding.Accumulated); err != nil {
+			return nil, "", err
+		}
+		return afterPost(fixedassets.Acquisition{Date: a.date(r), Ref: ref, Amount: cost, Funded: a.main()}, func() {
+			a.assets = append(a.assets, holding)
+		}), "Asset purchased: " + name, nil
 	}))
 	mux.HandleFunc("/accounting/fixed-assets/depreciate", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -2145,24 +2184,43 @@ func (a *app) routes() *http.ServeMux {
 		}
 		a.mu.Lock()
 		defer a.mu.Unlock()
+		if a.inClosedPeriod(a.today) {
+			a.flash = "⚠ today is in a closed period — use a later date"
+			http.Redirect(w, r, "/accounting/fixed-assets", http.StatusSeeOther)
+			return
+		}
+		fy := a.fy()
 		total := money.Zero(a.co.Currency)
 		posted := 0
 		for _, h := range a.assets {
+			if a.today.Before(h.Asset.Acquired) || !h.DepreciatedThrough.Before(fy.Start) {
+				continue
+			}
 			charge, err := h.Asset.Charge(h.Accumulated)
 			if err != nil || !charge.IsPositive() {
 				continue
 			}
-			j, err := fixedassets.DepreciationEntry{Date: a.today, Ref: a.ref("DEP"), Amount: charge}.Journal()
-			if err != nil || a.book.Post(j) != nil {
-				continue
+			if h.Asset.UsefulLifeYears > 0 && h.DepreciationYears+1 >= h.Asset.UsefulLifeYears {
+				charge, _ = h.Asset.Cost.Sub(h.Accumulated)
+				if h.Asset.Residual.Currency().Code != "" {
+					charge, _ = charge.Sub(h.Asset.Residual)
+				}
 			}
-			a.entries = append(a.entries, entry{section: "accounting", j: j})
-			h.Accumulated, _ = h.Accumulated.Add(charge)
+			op := fixedassets.DepreciationEntry{Date: a.today, Ref: a.ref("DEP"), Amount: charge}
+			if err := a.postOperation("accounting", afterPost(op, func() {
+				h.Accumulated, _ = h.Accumulated.Add(charge)
+				h.DepreciatedThrough = fy.End
+				h.DepreciationYears++
+			})); err != nil {
+				a.flash = "⚠ " + err.Error()
+				http.Redirect(w, r, "/accounting/fixed-assets", http.StatusSeeOther)
+				return
+			}
 			total, _ = total.Add(charge)
 			posted++
 		}
 		if posted == 0 {
-			a.flash = "⚠ No depreciation to post — add an asset first"
+			a.flash = "⚠ No depreciation to post — assets may already be charged for this financial year"
 		} else {
 			a.flash = fmt.Sprintf("✓ Posted %s depreciation across %d asset(s)", fmtMoney(total), posted)
 		}
@@ -2210,8 +2268,8 @@ func (a *app) routes() *http.ServeMux {
 			a.flash = "⚠ unknown entry to reverse"
 		case a.inClosedPeriod(a.today):
 			a.flash = "⚠ today is in a closed period — a reversal must post to an open period"
-		case touchesSubsidiary(a.entries[idx].j):
-			a.flash = "⚠ this entry moves trade debtors/creditors — correct it with a credit note so the sales/purchase ledger stays in step"
+		case a.reversalReason(a.entries[idx].j) != "":
+			a.flash = "⚠ " + a.reversalReason(a.entries[idx].j)
 		default:
 			orig := a.entries[idx].j
 			rev := orig.Reverse(a.today, "Reversal of "+orig.Narrative())
@@ -2287,7 +2345,12 @@ func (a *app) persistMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r)
 		if r.Method == http.MethodPost {
-			a.save()
+			if err := a.save(); err != nil {
+				log.Printf("save: %v", err)
+				a.mu.Lock()
+				a.flash = "⚠ Changes are in memory but could not be saved: " + err.Error()
+				a.mu.Unlock()
+			}
 		}
 	})
 }

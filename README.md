@@ -3,10 +3,10 @@
 **What this is.** An **educational game**: it teaches double-entry bookkeeping and
 UK small-company accounting by giving learners — children and students — a *totally
 virtual* limited company to run and understand, with built-in help and explanations
-for every step. Under the game sits a fully-correct accounting engine: real
-double-entry, real UK rules, correct statutory accounts and iXBRL. A teaching tool
-has to be genuinely right, so correctness is the whole point — but every company in
-it is fictional.
+for every step. Under the game sits an exact-money,
+double-entry engine with UK accounting workflows and educational FRS 105/iXBRL
+outputs. Correctness is the aim; the supported rules and remaining simplifications
+are listed in [the roadmap](docs/roadmap.md). Every company in it is fictional.
 
 **Classification.** An educational game. Not intended for, and not to be used for,
 the accounting of a real business.
@@ -19,7 +19,7 @@ so money arithmetic is never approximate.
 ```
 decimal  →  money  →  ledger  →  ┬─ chart      charts of accounts (data; UK starter provided)
                                  ├─ report     P&L / balance sheet (framework-neutral)  [built]
-                                 ├─ filing     Companies House profiles, iXBRL         [planned]
+                                 ├─ frs105     micro-entity layouts, educational iXBRL  [built]
                                  ├─ themes     Sales, Expenses, Banking, Pay Yourself, Company Tax  [built]
                                  └─ explain    plain-language narration of any operation / journal  [built]
 ```
@@ -44,7 +44,8 @@ accounting standard (FRS 105 vs FRS 102 §1A) lives in the upper layers — the
 | `dividends` | built | Distributable-reserves check — whether a proposed dividend is lawfully covered by reserves. |
 | `fixedassets` | built | Fixed-asset register + depreciation (straight-line / reducing-balance); posts purchase and charge. |
 | `mileage` | built | AMAP business-mileage claims (verified 2026/27 rates) and the reimbursement posting. |
-| `filing` | planned | Generated artifacts per recipient — filing profiles and iXBRL XML. Generates; never submits. |
+| `frs105` | built | Micro-entity balance sheet, P&L, comparatives and educational iXBRL; full taxonomy validation remains open. |
+| `filing` | planned | Recipient-specific filing profiles and validated artifacts. Generates; never submits. |
 | `csvimport` | built | CSV rows of invoices, expenses and bank statements, matched by header name. |
 | `importer` | built | A whole history from another package's export: typed tables (`.xls` via [`xls`](https://github.com/richardjennings/xls), or CSV) → a profile per package → records the engine posts. `importer/crunch` is the Crunch profile. |
 
@@ -66,15 +67,12 @@ the sixth is the ledger they all post into.
 
 A UK small/micro company prepares **one set of full accounts** for its members and
 HMRC, then puts a **reduced version** on the public Companies House register. The
-engine models this as one canonical set of full accounts with per-destination
-**filing profiles**, so "publish partial" is a property of the Companies House
-profile — not a separate set of books.
+planned filing layer will use one canonical set of full accounts with
+per-destination **filing profiles**. Those profiles are not implemented yet.
 
-This survives the ECCTA reforms taking effect **1 April 2028** (filleted/abridged
-accounts abolished; small and micro companies must file a profit & loss account but
-may opt out of *publishing* it; software-only iXBRL filing) as a change of flags,
-not a rewrite. Consistent with the boundary above, the engine *generates* these
-artifacts (including iXBRL); it never submits them.
+The current `frs105` package generates an educational accounts document with
+representative FRC taxonomy tags. It is tested as XML, but it does not validate
+against the complete taxonomy or recipient filing rules. No document is submitted.
 
 ## Current scope
 
@@ -84,8 +82,8 @@ artifacts (including iXBRL); it never submits them.
 - **Import:** paste or upload CSV, or upload a whole Crunch export archive (Company →
   Import). A foreign-currency invoice is posted at its value in the company currency;
   the currency figure is kept on the invoice line.
-- **Deferred:** the FRS 105 vs FRS 102 §1A choice; multi-currency/FX beyond that;
-  guided scenarios.
+- **Deferred:** FRS 102 §1A, complete taxonomy/filing validation, broader FX workflows,
+  and guided interactive scenarios.
 
 ## Design principles
 
@@ -117,7 +115,10 @@ menu of the six sections — **Sales, Expenses, Banking, Pay Yourself, Company T
 Accounting** — each expanding to its own sub-sections (Invoices, Salary, Dividends,
 …). Every operation and calculator is wired in (payroll, corporation tax, the
 dividend reserves check, depreciation, mileage), and the statements update live.
-In-memory, no external integrations.
+State is saved locally after changes. Saves are versioned and written atomically;
+the preceding save is kept as `state.json.bak`. An unreadable save causes startup
+to return an error and leaves the file intact. A save failure during use is shown
+in the UI; the changes remain in memory. Run one writable UI process per save file.
 
 ## Ask questions over MCP
 
@@ -142,7 +143,16 @@ claude mcp add accounts -- go -C "$PWD" run ./cmd/web -mcp
 
 ## Build & test
 
+This development checkout currently uses local Go module replacements. Clone
+`richardjennings/decimal`, `richardjennings/ixbrl`, and `richardjennings/xls` into
+sibling directories (`../decimal`, `../ixbrl`, `../xls`) before building. Published,
+pinned dependency versions remain a packaging task.
+
 ```sh
 go test ./...
 go vet ./...
+go test -race ./...
 ```
+
+See [the workflow integrity changes](docs/integrity-fixes.md) for the corrected
+posting, closing, credit-note, VAT, payroll, depreciation and mileage behavior.

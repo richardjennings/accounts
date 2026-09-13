@@ -1,8 +1,7 @@
-// Package vatreturn computes a UK VAT return — the nine boxes — for a period,
-// directly from the ledger. Output VAT (Box 1) and input VAT (Box 4) are read
-// exactly from the credits and debits on the VAT control account, so the net VAT
-// position is precise. Box 6 (sales) and Box 7 (purchases) are the net values of the
-// income and purchase accounts.
+// Package vatreturn computes a UK VAT return for domestic sales and purchases.
+// It classifies VAT using the income or purchase legs of each journal: supplier
+// credits reduce inputs and sales credits reduce outputs. Settlements of the VAT
+// control account against cash are payments/refunds, not new supplies.
 //
 // In keeping with the product it computes the return and presents it as a document;
 // it does NOT submit anything to HMRC. It is only meaningful for a VAT-registered
@@ -10,6 +9,7 @@
 package vatreturn
 
 import (
+	"fmt"
 	"github.com/richardjennings/accounts/ledger"
 	"github.com/richardjennings/accounts/money"
 )
@@ -48,31 +48,46 @@ func Compute(book *ledger.Book, from, to ledger.Date, opt Options) (Return, erro
 		Box8: money.Zero(base), Box9: money.Zero(base),
 	}
 
-	// Box 1 / Box 4: output VAT is credits to the control account, input VAT is debits.
+	capital := map[string]bool{}
+	for _, code := range opt.CapitalCodes {
+		capital[code] = true
+	}
 	for _, j := range book.Journals() {
-		if !inPeriod(j.Date(), from, to) {
+		if j.IsClosing() || !inPeriod(j.Date(), from, to) {
 			continue
 		}
+		output, input := false, false
+		vatNet := money.Zero(base) // credit-positive
 		for _, p := range j.Postings() {
-			if p.Account != opt.VATControl {
+			if p.Account == opt.VATControl {
+				if p.Side == ledger.Credit {
+					vatNet, _ = vatNet.Add(p.Amount)
+				} else {
+					vatNet, _ = vatNet.Sub(p.Amount)
+				}
 				continue
 			}
-			var err error
-			if p.Side == ledger.Credit {
-				if r.Box1, err = r.Box1.Add(p.Amount); err != nil {
-					return Return{}, err
-				}
-			} else {
-				if r.Box4, err = r.Box4.Add(p.Amount); err != nil {
-					return Return{}, err
-				}
-			}
+			ac, _ := book.Account(p.Account)
+			output = output || ac.Type == ledger.Income
+			input = input || (ac.Type == ledger.Expense && !opt.PurchaseExclude[ac.Code]) || capital[p.Account]
+		}
+		if vatNet.IsZero() {
+			continue
+		}
+		if output && input {
+			return Return{}, fmt.Errorf("vatreturn: journal %s mixes sales and purchases; split its VAT", j.Ref())
+		}
+		if output {
+			r.Box1, _ = r.Box1.Add(vatNet)
+		}
+		if input {
+			r.Box4, _ = r.Box4.Sub(vatNet)
 		}
 	}
 
 	// Box 6 / Box 7: net values of income and purchase accounts over the period.
 	for _, ac := range book.Accounts() {
-		mv, err := book.MovementBetween(ac.Code, from, to)
+		mv, err := book.ActivityBetween(ac.Code, from, to)
 		if err != nil {
 			return Return{}, err
 		}
@@ -88,7 +103,7 @@ func Compute(book *ledger.Book, from, to ledger.Date, opt Options) (Return, erro
 		}
 	}
 	for _, code := range opt.CapitalCodes {
-		mv, err := book.MovementBetween(code, from, to)
+		mv, err := book.ActivityBetween(code, from, to)
 		if err != nil {
 			return Return{}, err
 		}

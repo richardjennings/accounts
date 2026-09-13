@@ -7,6 +7,7 @@ package mileage
 
 import (
 	"math/big"
+	"time"
 
 	"github.com/richardjennings/accounts/chart"
 	"github.com/richardjennings/accounts/ledger"
@@ -51,10 +52,22 @@ var Year2026_27 = RateTable{
 	BicycleRate:    decimal.MustParse("0.20"),
 }
 
+// RatesOn selects the mileage rates in force on the journey date.
+func RatesOn(date ledger.Date) RateTable {
+	rt := Year2026_27
+	if date.Before(ledger.NewDate(2026, time.April, 6)) {
+		rt.Name, rt.CarFirst = "before 6 April 2026", decimal.MustParse("0.45")
+	}
+	return rt
+}
+
 // Claim returns the approved allowance for miles driven in v, given priorMiles
 // already claimed this tax year (which decides how much of a car/van journey falls
 // under the 10,000-mile threshold). A zero-value RateTable uses Year2026_27.
 func Claim(miles, priorMiles int, v Vehicle, rt RateTable) money.Money {
+	if priorMiles < 0 {
+		priorMiles = 0
+	}
 	if rt.Name == "" {
 		rt = Year2026_27
 	}

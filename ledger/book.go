@@ -11,9 +11,10 @@ import (
 // of posted journals, all in one base currency. Journals are only ever appended;
 // balances and the trial balance are derived from them on demand.
 type Book struct {
-	base     money.Currency
-	accounts map[string]Account
-	journals []Journal
+	base          money.Currency
+	accounts      map[string]Account
+	journals      []Journal
+	closedThrough Date
 }
 
 // NewBook returns an empty book keeping accounts in the given base currency.
@@ -56,6 +57,9 @@ func (b *Book) Account(code string) (Account, bool) {
 // posting references a known account. The journal is already balanced (NewJournal
 // guarantees it), so nothing here can put the books out of balance.
 func (b *Book) Post(j Journal) error {
+	if !b.closedThrough.IsZero() && !b.closedThrough.Before(j.Date()) {
+		return fmt.Errorf("ledger: %s is in a closed period (through %s)", j.Date(), b.closedThrough)
+	}
 	if len(j.postings) < 2 {
 		return ErrTooFewPostings
 	}
@@ -69,6 +73,14 @@ func (b *Book) Post(j Journal) error {
 	}
 	b.journals = append(b.journals, j)
 	return nil
+}
+
+// CloseThrough prevents further postings on or before on. A lock only advances.
+// Restore historical journals before applying the saved lock.
+func (b *Book) CloseThrough(on Date) {
+	if b.closedThrough.Before(on) {
+		b.closedThrough = on
+	}
 }
 
 // Journals returns a copy of the posted journals in posting order.
@@ -86,9 +98,13 @@ func (b *Book) netDebit(code string) (money.Money, error) {
 
 // netDebitFiltered is netDebit restricted to journals whose date satisfies keep.
 func (b *Book) netDebitFiltered(code string, keep func(Date) bool) (money.Money, error) {
+	return b.netDebitJournals(code, func(j Journal) bool { return keep(j.Date()) })
+}
+
+func (b *Book) netDebitJournals(code string, keep func(Journal) bool) (money.Money, error) {
 	net := money.Zero(b.base)
 	for _, j := range b.journals {
-		if !keep(j.date) {
+		if !keep(j) {
 			continue
 		}
 		for _, p := range j.postings {
@@ -107,6 +123,22 @@ func (b *Book) netDebitFiltered(code string, keep func(Date) bool) (money.Money,
 		}
 	}
 	return net, nil
+}
+
+// ActivityBetween is the movement excluding period-closing transfers. Use this
+// for income, expense and tax reports; MovementBetween includes every posting.
+func (b *Book) ActivityBetween(code string, from, to Date) (money.Money, error) {
+	a, ok := b.accounts[code]
+	if !ok {
+		return money.Money{}, fmt.Errorf("%w: %s", ErrUnknownAccount, code)
+	}
+	net, err := b.netDebitJournals(code, func(j Journal) bool {
+		return !j.IsClosing() && !j.Date().Before(from) && !to.Before(j.Date())
+	})
+	if err != nil {
+		return money.Money{}, err
+	}
+	return normalBalance(a.Type, net), nil
 }
 
 // normalBalance converts a debit-positive net into the account's natural sense:
