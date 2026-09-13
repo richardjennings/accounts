@@ -154,5 +154,11 @@ go vet ./...
 go test -race ./...
 ```
 
+[GitHub Actions](.github/workflows/ci.yml) runs all three checks on every pull
+request and push to `main`, and can also be started manually. CI checks out the
+three sibling dependencies at pinned commits and reads the Go version from
+`go.mod`. The optional private-export test remains local: it runs only when
+`CRUNCH_EXPORT_ZIP` is set.
+
 See [the workflow integrity changes](docs/integrity-fixes.md) for the corrected
 posting, closing, credit-note, VAT, payroll, depreciation and mileage behavior.

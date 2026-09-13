@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: accounts
+
+    steps:
+      - name: Check out accounts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: accounts
+          persist-credentials: false
+
+      # go.mod replaces these modules with sibling directories. Pin the
+      # checkouts so dependency changes cannot silently change a CI run.
+      - name: Check out decimal
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: richardjennings/decimal
+          ref: e570e7687ef047a9618daf4d0db625adc2c08bca
+          path: decimal
+          persist-credentials: false
+
+      - name: Check out ixbrl
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: richardjennings/ixbrl
+          ref: db4aee71b8f88324f6617741525bb2bb565b6a41
+          path: ixbrl
+          persist-credentials: false
+
+      - name: Check out xls
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: richardjennings/xls
+          ref: 96d4afc243d72a98c1e96070cb4951f661e08964
+          path: xls
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: accounts/go.mod
+          # All dependencies are local replacements; there is no go.sum.
+          cache: false
+
+      - name: Test
+        run: go test ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Race detection
+        run: go test -race ./...

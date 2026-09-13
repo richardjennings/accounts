@@ -28,6 +28,8 @@ local documents, with no live HMRC, Companies House or bank-feed integrations.
   foreign-currency receipts and conversions.
 - Local versioned JSON saves, atomic writes, a previous-save backup, and read-only
   MCP access to the saved company.
+- GitHub Actions test, vet and race checks on pull requests and pushes to `main`,
+  with pinned sibling dependency checkouts.
 - Journal explanations, a glossary and a Learn page.
 
 The [workflow integrity notes](integrity-fixes.md) explain the September 2026 bug
@@ -60,8 +62,8 @@ silently rewritten.
    reconciliation as at a statement date, stronger duplicate/import provenance,
    and fuller foreign-currency movement/revaluation support.
 7. **Portable releases.** Publish and pin the decimal, xls and ixbrl dependencies;
-   the current development module requires their sibling checkouts. Add automated
-   test/vet/race checks and release packaging.
+   the current development module requires their sibling checkouts. CI pins those
+   checkouts; published module versions and release packaging remain to be added.
 8. **Teaching experience.** Add guided interactive scenarios, checkpoints,
    exercises and accessibility review beyond the existing explanations/Learn page.
 
